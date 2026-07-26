@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Workout Tracker</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>Workout Tracker</h1>
+    <button id="settings-toggle" class="btn btn-icon" aria-label="Settings">⚙</button>
+  </header>
+
+  <div id="token-banner" class="banner banner-warning" hidden></div>
+
+  <div id="settings-panel" class="settings-panel" hidden>
+    <h3>GitHub token</h3>
+    <p class="settings-hint">
+      Fine-grained personal access token, scoped to this repo only
+      (Contents: Read/write, Pull requests: Read/write). Stored only in this browser.
+    </p>
+    <input id="token-input" type="password" class="input" placeholder="github_pat_..." autocomplete="off" />
+    <div class="settings-actions">
+      <button id="token-save" class="btn btn-primary">Save</button>
+      <button id="token-clear" class="btn btn-secondary">Clear</button>
+    </div>
+    <div id="token-test-status" class="settings-status"></div>
+  </div>
+
+  <nav class="tab-bar">
+    <button class="tab-button active" data-target="tab-workout">Today</button>
+    <button class="tab-button" data-target="tab-manage">Manage</button>
+  </nav>
+
+  <div id="loading" class="loading">Loading workout plan…</div>
+
+  <main>
+    <section id="tab-workout" class="tab-panel"></section>
+    <section id="tab-manage" class="tab-panel" hidden></section>
+  </main>
+
+  <script src="assets/config.js"></script>
+  <script src="assets/state.js"></script>
+  <script src="assets/plan.js"></script>
+  <script src="assets/github.js"></script>
+  <script src="assets/tab-workout.js"></script>
+  <script src="assets/tab-manage.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "days": [
+    {
+      "id": "day-1",
+      "label": "Day 1",
+      "type": "Push",
+      "exercises": [
+        { "id": "day-1-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
+        { "id": "day-1-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
+        { "id": "day-1-incline-chest-press", "name": "Incline chest press", "sets": 4, "target": "6/8", "defaultValue": "22-22-24-24" },
+        { "id": "day-1-weighted-dips", "name": "Weighted dips", "sets": 4, "target": "6/8", "defaultValue": "0 kg" },
+        { "id": "day-1-tricep-extension", "name": "Tricep extension", "sets": 4, "target": "8/10", "defaultValue": "10 kg" },
+        { "id": "day-1-military-raises", "name": "Military raises", "sets": 3, "target": "6/8", "defaultValue": "12 kg ps" },
+        { "id": "day-1-lateral-raises", "name": "Lateral raises", "sets": 3, "target": "8/10", "defaultValue": "6 kg ps" }
+      ]
+    },
+    {
+      "id": "day-2",
+      "label": "Day 2",
+      "type": "Pull",
+      "exercises": [
+        { "id": "day-2-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
+        { "id": "day-2-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
+        { "id": "day-2-weighted-pull-ups", "name": "Weighted pull ups", "sets": 4, "target": "4/5", "defaultValue": "10 kg" },
+        { "id": "day-2-australian-ring-pull-ups", "name": "Australian ring pull ups", "sets": 4, "target": "10/12", "defaultValue": "" },
+        { "id": "day-2-bicep-curls", "name": "Bicep curls", "sets": 4, "target": "8/10", "defaultValue": "5 kg ps" },
+        { "id": "day-2-reverse-butterfly", "name": "Reverse butterfly", "sets": 4, "target": "6/8", "defaultValue": "6 kg" },
+        { "id": "day-2-wrist-curls", "name": "Wrist curls", "sets": 4, "target": "8/10 per side", "defaultValue": "6/8 kg" }
+      ]
+    },
+    {
+      "id": "day-3",
+      "label": "Day 3",
+      "type": "Legs",
+      "exercises": [
+        { "id": "day-3-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
+        { "id": "day-3-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
+        { "id": "day-3-calf-raises", "name": "Calf raises", "sets": 4, "target": "12/15", "defaultValue": "30 kg" },
+        { "id": "day-3-back-extension", "name": "Back extension", "sets": 4, "target": "10/12", "defaultValue": "15 kg" },
+        { "id": "day-3-squat", "name": "Squat", "sets": 4, "target": "6/8", "defaultValue": "80 kg per side" },
+        { "id": "day-3-leg-extension", "name": "Leg extension", "sets": 4, "target": "8/10", "defaultValue": "43 kg" },
+        { "id": "day-3-leg-curl", "name": "Leg curl", "sets": 4, "target": "8/10", "defaultValue": "43 kg" }
+      ]
+    },
+    {
+      "id": "day-4",
+      "label": "Day 4",
+      "type": "Push",
+      "exercises": [
+        { "id": "day-4-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
+        { "id": "day-4-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
+        { "id": "day-4-chest-press", "name": "Chest press", "sets": 5, "target": "6/8", "defaultValue": "20 kg ps" },
+        { "id": "day-4-cable-flies", "name": "Cable flies", "sets": 4, "target": "8/10", "defaultValue": "30 kg" },
+        { "id": "day-4-diamond-push-ups", "name": "Diamond push ups", "sets": 4, "target": "6/8", "defaultValue": "0 kg" },
+        { "id": "day-4-military-raises", "name": "Military raises", "sets": 4, "target": "6/8", "defaultValue": "30 kg" },
+        { "id": "day-4-cable-lateral-raises", "name": "Cable lateral raises", "sets": 4, "target": "8/10", "defaultValue": "8 kg" }
+      ]
+    },
+    {
+      "id": "day-5",
+      "label": "Day 5",
+      "type": "Pull",
+      "exercises": [
+        { "id": "day-5-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
+        { "id": "day-5-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
+        { "id": "day-5-lat-pull-down", "name": "Lat pull down", "sets": 5, "target": "4/5", "defaultValue": "20 kg" },
+        { "id": "day-5-pulley", "name": "Pulley", "sets": 5, "target": "6/8", "defaultValue": "40 kg" },
+        { "id": "day-5-hammer-curls", "name": "Hammer curls", "sets": 4, "target": "8/10", "defaultValue": "15 kg" },
+        { "id": "day-5-reverse-butterfly", "name": "Reverse butterfly", "sets": 4, "target": "6/8", "defaultValue": "20 kg" },
+        { "id": "day-5-weighted-dead-hang", "name": "Weighted dead hang", "sets": 4, "target": "1 min", "defaultValue": "10 kg" }
+      ]
+    },
+    {
+      "id": "day-6",
+      "label": "Day 6",
+      "type": "Cardio",
+      "exercises": [
+        { "id": "day-6-run", "name": "Run", "sets": 1, "target": "1 h", "defaultValue": "" },
+        { "id": "day-6-abs-routine", "name": "Abs routine", "sets": 1, "target": "30 min", "defaultValue": "" }
+      ]
+    },
+    {
+      "id": "day-7",
+      "label": "Day 7",
+      "type": "Rest",
+      "exercises": []
+    }
+  ]
+}
