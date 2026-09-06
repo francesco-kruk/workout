@@ -33,6 +33,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         `Allenamento · giornata ${sessionIndex + 1} di ${plan.sessions.length}`
       )
     );
+    container.appendChild(renderJumpControls(session, summary));
     container.appendChild(createProgress(summary, "step completati"));
 
     if (summary.currentIndex < 0) {
@@ -59,6 +60,86 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     if (step.type !== "amrap") {
       container.appendChild(renderStepActions(step, summary.progress));
     }
+  }
+
+  function renderJumpControls(session, summary) {
+    const controls = document.createElement("section");
+    controls.className = "jump-controls";
+    controls.setAttribute("aria-label", "Navigazione rapida");
+
+    const dayField = createJumpField("Giorno");
+    const daySelect = document.createElement("select");
+    daySelect.setAttribute("aria-label", "Vai a un giorno");
+    for (const item of plan.sessions) {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = item.label;
+      option.selected = item.id === session.id;
+      daySelect.appendChild(option);
+    }
+    daySelect.addEventListener("change", () => {
+      setCurrentSessionId(daySelect.value);
+      renderCurrent();
+    });
+    dayField.appendChild(daySelect);
+
+    const exerciseField = createJumpField("Esercizio");
+    const exerciseSelect = document.createElement("select");
+    exerciseSelect.setAttribute("aria-label", "Vai a un esercizio");
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Scegli esercizio";
+    exerciseSelect.appendChild(placeholder);
+
+    const destinations = getExerciseDestinations(session);
+    const currentStep = summary.steps[summary.currentIndex];
+    const currentDestinationKey = getExerciseDestinationKey(currentStep);
+    for (const destination of destinations) {
+      const option = document.createElement("option");
+      option.value = destination.key;
+      option.textContent = destination.label;
+      option.selected = destination.key === currentDestinationKey;
+      exerciseSelect.appendChild(option);
+    }
+    exerciseSelect.addEventListener("change", () => {
+      if (!exerciseSelect.value) return;
+      completeStepsBefore(plan, session.id, exerciseSelect.value);
+      renderCurrent();
+    });
+    exerciseField.appendChild(exerciseSelect);
+
+    controls.append(dayField, exerciseField);
+    return controls;
+  }
+
+  function createJumpField(label) {
+    const field = document.createElement("label");
+    field.className = "jump-field";
+    field.appendChild(textEl("span", label));
+    return field;
+  }
+
+  function getExerciseDestinations(session) {
+    if (session.type === "amrap") {
+      return [
+        {
+          key: `${session.id}:amrap`,
+          label: session.subtitle || "Circuito AMRAP",
+        },
+      ];
+    }
+
+    return session.exercises.map((exercise) => ({
+      key: `${exercise.id}:0`,
+      label: exercise.name,
+    }));
+  }
+
+  function getExerciseDestinationKey(step) {
+    if (step?.type === "set") return `${step.exercise.id}:0`;
+    if (step?.type === "amrap") return step.key;
+    return "";
   }
 
   function renderWarmupStep(step) {
