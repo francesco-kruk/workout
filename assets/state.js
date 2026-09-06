@@ -21,7 +21,7 @@ function setCurrentSessionId(sessionId) {
 
 function getActiveView() {
   const stored = localStorage.getItem(STORAGE_KEYS.activeView);
-  return VALID_VIEWS.has(stored) ? stored : "day";
+  return VALID_VIEWS.has(stored) ? stored : "workout";
 }
 
 function setActiveView(view) {
@@ -89,6 +89,31 @@ function setStepStatus(sessionId, key, status) {
   progress.history.push(key);
   store.sessions[sessionId] = progress;
   writeProgressStore(store);
+}
+
+function completeStepsBefore(plan, sessionId, targetKey) {
+  const session = plan.sessions.find((item) => item.id === sessionId);
+  if (!session) return false;
+
+  const steps = getWorkoutSteps(plan, session);
+  const targetIndex = steps.findIndex((step) => step.key === targetKey);
+  if (targetIndex < 0) return false;
+
+  const store = readProgressStore();
+  const progress = getStoredSession(store, sessionId);
+  const precedingKeys = steps.slice(0, targetIndex).map((step) => step.key);
+  const precedingKeySet = new Set(precedingKeys);
+
+  for (const key of precedingKeys) {
+    progress.steps[key] = "completed";
+  }
+  progress.history = [
+    ...progress.history.filter((key) => !precedingKeySet.has(key)),
+    ...precedingKeys,
+  ];
+  store.sessions[sessionId] = progress;
+  writeProgressStore(store);
+  return true;
 }
 
 function undoLastStep(sessionId) {
