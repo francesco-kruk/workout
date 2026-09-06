@@ -1,90 +1,380 @@
 {
-  "version": 1,
-  "days": [
+  "version": 2,
+  "title": "Scheda n. 1 - Basi + Skill",
+  "warmup": [
     {
-      "id": "day-1",
-      "label": "Day 1",
-      "type": "Push",
+      "id": "warmup-collo",
+      "name": "Circonduzioni del collo",
+      "target": "8 a destra, 8 a sinistra",
+      "instructions": "Movimento lento e controllato."
+    },
+    {
+      "id": "warmup-spalle",
+      "name": "Circonduzioni delle spalle a braccia tese",
+      "target": "10 indietro, 10 avanti",
+      "instructions": "Movimento lento e controllato."
+    },
+    {
+      "id": "warmup-aperture-braccia",
+      "name": "Apertura e chiusura delle braccia tese",
+      "target": "10 ripetizioni veloci",
+      "instructions": ""
+    },
+    {
+      "id": "warmup-flessione-spalla",
+      "name": "Flessione ed estensione della spalla",
+      "target": "20 ripetizioni, alternando un braccio in alto e uno in basso",
+      "instructions": "Esecuzione tecnica ma veloce, con slancio controllato."
+    },
+    {
+      "id": "warmup-cane-gatto",
+      "name": "Cane-gatto e circonduzioni del busto",
+      "target": "8-10 per lato",
+      "instructions": "Movimento lento e controllato, coordinato con la respirazione."
+    },
+    {
+      "id": "warmup-plank-triangolo",
+      "name": "Da plank a triangolo",
+      "target": "10 ripetizioni, poi 30 secondi in posizione del triangolo",
+      "instructions": "In plank non accentuare troppo la hollow; nel triangolo apri bene le spalle."
+    },
+    {
+      "id": "warmup-polsi",
+      "name": "Mobilità dei polsi in quadrupedia",
+      "target": "Movimenti in tutte le direzioni, poi 20 secondi di allungamento",
+      "instructions": "Allunga flessori ed estensori dell'avambraccio senza forzare, con controllo."
+    },
+    {
+      "id": "warmup-elastico",
+      "name": "Attivazione con elastico",
+      "target": "10 ripetizioni per movimento, mantenendo 5 secondi l'ultima",
+      "instructions": "Esegui intra ed extra rotazione del braccio e attivazione di dorsale, tricipite e bicipite. Mantieni le ripetizioni tecniche e controllate; con il gomito vicino al corpo, deprimi bene le spalle."
+    }
+  ],
+  "sessions": [
+    {
+      "id": "giorno-a",
+      "label": "Giorno A",
+      "type": "standard",
       "exercises": [
-        { "id": "day-1-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
-        { "id": "day-1-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
-        { "id": "day-1-incline-chest-press", "name": "Incline chest press", "sets": 4, "target": "6/8", "defaultValue": "22-22-24-24" },
-        { "id": "day-1-weighted-dips", "name": "Weighted dips", "sets": 4, "target": "6/8", "defaultValue": "0 kg" },
-        { "id": "day-1-tricep-extension", "name": "Tricep extension", "sets": 4, "target": "8/10", "defaultValue": "10 kg" },
-        { "id": "day-1-military-raises", "name": "Military raises", "sets": 3, "target": "6/8", "defaultValue": "12 kg ps" },
-        { "id": "day-1-lateral-raises", "name": "Lateral raises", "sets": 3, "target": "8/10", "defaultValue": "6 kg ps" }
+        {
+          "id": "a-wall-handstand-hold",
+          "name": "Tenuta in verticale al muro",
+          "sets": 4,
+          "target": "15-25 secondi",
+          "rest": "45-60 secondi",
+          "instructions": "Inizia con la schiena al muro; in seguito si tornerà con la pancia al muro. Spingi le spalle verso le orecchie, contrai l'addome, mantieni il bacino in retroversione, le gambe tese e le punte tirate."
+        },
+        {
+          "id": "a-pull-up",
+          "name": "Trazioni",
+          "sets": 5,
+          "target": "6-8 ripetizioni",
+          "rest": "120 secondi",
+          "instructions": "Ricerca la corretta attivazione del dorsale e la verticalità nella trazione. Concentrati sulla chiusura e mantieni le spalle depresse, senza coinvolgere il trapezio."
+        },
+        {
+          "id": "a-push-up",
+          "name": "Piegamenti",
+          "sets": 6,
+          "target": "15 ripetizioni",
+          "rest": "90-120 secondi",
+          "instructions": "Esegui le prime 5 ripetizioni in modo controllato, con 5 secondi in discesa e 5 in salita; completa le altre 10 a velocità normale."
+        },
+        {
+          "id": "a-pull-up-hold",
+          "name": "Tenuta in trazione",
+          "sets": 3,
+          "target": "15 secondi",
+          "rest": "60 secondi",
+          "instructions": "Esegui una trazione e mantieni il mento sopra la sbarra, con il petto il più vicino possibile alla sbarra e il corpo verticale."
+        }
       ]
     },
     {
-      "id": "day-2",
-      "label": "Day 2",
-      "type": "Pull",
+      "id": "giorno-b",
+      "label": "Giorno B",
+      "type": "standard",
       "exercises": [
-        { "id": "day-2-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
-        { "id": "day-2-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
-        { "id": "day-2-weighted-pull-ups", "name": "Weighted pull ups", "sets": 4, "target": "4/5", "defaultValue": "10 kg" },
-        { "id": "day-2-australian-ring-pull-ups", "name": "Australian ring pull ups", "sets": 4, "target": "10/12", "defaultValue": "" },
-        { "id": "day-2-bicep-curls", "name": "Bicep curls", "sets": 4, "target": "8/10", "defaultValue": "5 kg ps" },
-        { "id": "day-2-reverse-butterfly", "name": "Reverse butterfly", "sets": 4, "target": "6/8", "defaultValue": "6 kg" },
-        { "id": "day-2-wrist-curls", "name": "Wrist curls", "sets": 4, "target": "8/10 per side", "defaultValue": "6/8 kg" }
+        {
+          "id": "b-box-walk",
+          "name": "Camminata in verticale su box",
+          "sets": 3,
+          "target": "4-5 ripetizioni",
+          "rest": "60 secondi",
+          "instructions": "Dalla verticale con i piedi sul box, cammina con le mani fino alla posizione lean. Una ripetizione comprende andata e ritorno; esegui almeno 4-5 passi in ogni direzione."
+        },
+        {
+          "id": "b-incline-australian",
+          "name": "Trazioni australiane inclinate con piedi su box",
+          "sets": 5,
+          "target": "8 ripetizioni",
+          "rest": "60 secondi",
+          "instructions": "Parti prono e, durante la tirata, ruota gli anelli fino alla presa neutra. Mantieni 2 secondi in chiusura nelle prime 5 ripetizioni; esegui normalmente le restanti."
+        },
+        {
+          "id": "b-v-push-up",
+          "name": "Piegamenti a V con piedi su box",
+          "sets": 5,
+          "target": "8 ripetizioni",
+          "rest": "60 secondi",
+          "instructions": "In discesa sporgiti in avanti senza aprire i gomiti. In salita mantieni l'avambraccio a 90 gradi rispetto al pavimento e apri bene la schiena a fine ripetizione."
+        },
+        {
+          "id": "b-false-grip-hold",
+          "name": "Tenuta appesa in false grip",
+          "sets": 3,
+          "target": "20-25 secondi",
+          "rest": "45 secondi",
+          "instructions": "Mantieni la false grip il più possibile durante la tenuta; usa un box per raggiungere la posizione appesa."
+        }
       ]
     },
     {
-      "id": "day-3",
-      "label": "Day 3",
-      "type": "Legs",
+      "id": "giorno-c",
+      "label": "Giorno C",
+      "type": "standard",
       "exercises": [
-        { "id": "day-3-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
-        { "id": "day-3-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
-        { "id": "day-3-calf-raises", "name": "Calf raises", "sets": 4, "target": "12/15", "defaultValue": "30 kg" },
-        { "id": "day-3-back-extension", "name": "Back extension", "sets": 4, "target": "10/12", "defaultValue": "15 kg" },
-        { "id": "day-3-squat", "name": "Squat", "sets": 4, "target": "6/8", "defaultValue": "80 kg per side" },
-        { "id": "day-3-leg-extension", "name": "Leg extension", "sets": 4, "target": "8/10", "defaultValue": "43 kg" },
-        { "id": "day-3-leg-curl", "name": "Leg curl", "sets": 4, "target": "8/10", "defaultValue": "43 kg" }
+        {
+          "id": "c-planche-lean",
+          "name": "Tenuta planche lean",
+          "sets": 3,
+          "target": "10-15 secondi",
+          "rest": "60 secondi",
+          "instructions": "Mantieni la posizione hollow, le spalle lontane dalle orecchie, lo sguardo a 45 gradi in avanti, le braccia tese e leggermente extraruotate senza iperestenderle, il bacino in retroversione, l'addome contratto e le gambe tese."
+        },
+        {
+          "id": "c-chin-up",
+          "name": "Trazioni supine",
+          "sets": 5,
+          "target": "8 ripetizioni",
+          "rest": "90 secondi",
+          "instructions": "Mantieni le spalle depresse e porta la sbarra il più in basso possibile."
+        },
+        {
+          "id": "c-incline-push-up",
+          "name": "Piegamenti inclinati",
+          "sets": 5,
+          "target": "10 ripetizioni",
+          "rest": "60-90 secondi",
+          "instructions": "Tieni le mani poco più larghe delle spalle e i piedi su un box alto 30-45 cm. Porta il petto a sfiorare il pavimento."
+        },
+        {
+          "id": "c-wrist-curl",
+          "name": "Flessioni dei polsi",
+          "sets": 3,
+          "target": "8-10 ripetizioni",
+          "rest": "45 secondi",
+          "instructions": "Usa almeno 10 kg con bilanciere EZ oppure due manubri da 6 kg. Appoggia l'avambraccio sulla panca in posizione supina e sfrutta tutta l'escursione, dall'estensione alla flessione."
+        }
       ]
     },
     {
-      "id": "day-4",
-      "label": "Day 4",
-      "type": "Push",
+      "id": "giorno-d",
+      "label": "Giorno D",
+      "type": "standard",
       "exercises": [
-        { "id": "day-4-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
-        { "id": "day-4-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
-        { "id": "day-4-chest-press", "name": "Chest press", "sets": 5, "target": "6/8", "defaultValue": "20 kg ps" },
-        { "id": "day-4-cable-flies", "name": "Cable flies", "sets": 4, "target": "8/10", "defaultValue": "30 kg" },
-        { "id": "day-4-diamond-push-ups", "name": "Diamond push ups", "sets": 4, "target": "6/8", "defaultValue": "0 kg" },
-        { "id": "day-4-military-raises", "name": "Military raises", "sets": 4, "target": "6/8", "defaultValue": "30 kg" },
-        { "id": "day-4-cable-lateral-raises", "name": "Cable lateral raises", "sets": 4, "target": "8/10", "defaultValue": "8 kg" }
+        {
+          "id": "d-hs-angoli",
+          "name": "Verticale: tenute a vari angoli",
+          "sets": 3,
+          "target": "1 blocco",
+          "rest": "60 secondi",
+          "instructions": "Un blocco comprende 15 secondi pancia al muro a 45 gradi, 15 secondi pancia al muro a 120 gradi e 15 secondi schiena al muro."
+        },
+        {
+          "id": "d-ring-dip",
+          "name": "Dip agli anelli",
+          "sets": 5,
+          "target": "6-8 ripetizioni",
+          "rest": "90 secondi",
+          "instructions": "Parti con le braccia tese ed extraruotate e gli anelli vicini al corpo, evitando l'iperestensione. Esegui il dip in presa neutra."
+        },
+        {
+          "id": "d-ring-pull-up",
+          "name": "Trazioni agli anelli",
+          "sets": 5,
+          "target": "6-8 ripetizioni",
+          "rest": "60-90 secondi",
+          "instructions": "Parti in presa prona, ruota fino alla presa neutra e porta il petto agli anelli. Mantieni la chiusura per 1-2 secondi."
+        },
+        {
+          "id": "d-warmup-gambe",
+          "name": "Riscaldamento gambe",
+          "sets": 2,
+          "target": "10 squat a corpo libero, 8 affondi per gamba, 10 squat con salto",
+          "rest": "30 secondi",
+          "instructions": "Ripeti la sequenza senza pause per due volte."
+        },
+        {
+          "id": "d-squat-bulgarian",
+          "name": "Squat + squat bulgaro",
+          "sets": 5,
+          "optionalSets": 1,
+          "target": "8 Squat + 8 Bulgarian per lato",
+          "rest": "120 secondi",
+          "instructions": "Superserie: squat con bilanciere da 30 kg, 20 secondi di recupero, poi squat bulgaro con due manubri da 8 kg. Esegui 5 serie, con una sesta facoltativa."
+        }
       ]
     },
     {
-      "id": "day-5",
-      "label": "Day 5",
-      "type": "Pull",
+      "id": "giorno-e",
+      "label": "Giorno E",
+      "type": "standard",
       "exercises": [
-        { "id": "day-5-jump-rope", "name": "Jump rope", "sets": 1, "target": "5 min", "defaultValue": "" },
-        { "id": "day-5-warm-up", "name": "Warm up", "sets": 1, "target": "10 min", "defaultValue": "" },
-        { "id": "day-5-lat-pull-down", "name": "Lat pull down", "sets": 5, "target": "4/5", "defaultValue": "20 kg" },
-        { "id": "day-5-pulley", "name": "Pulley", "sets": 5, "target": "6/8", "defaultValue": "40 kg" },
-        { "id": "day-5-hammer-curls", "name": "Hammer curls", "sets": 4, "target": "8/10", "defaultValue": "15 kg" },
-        { "id": "day-5-reverse-butterfly", "name": "Reverse butterfly", "sets": 4, "target": "6/8", "defaultValue": "20 kg" },
-        { "id": "day-5-weighted-dead-hang", "name": "Weighted dead hang", "sets": 4, "target": "1 min", "defaultValue": "10 kg" }
+        {
+          "id": "e-handstand",
+          "name": "Verticale",
+          "sets": 3,
+          "target": "5 spinte scapolari + 1 discesa",
+          "rest": "45 secondi",
+          "instructions": "Dopo le 5 spinte scapolari, esegui una discesa lenta di 5 secondi con blocco a 90 gradi per 2-3 secondi."
+        },
+        {
+          "id": "e-archer-pull-up",
+          "name": "Trazioni archer",
+          "sets": 5,
+          "target": "4-5 ripetizioni",
+          "rest": "90 secondi",
+          "instructions": "Sali dalla presa prona alla supina con gli anelli vicini al petto. Estendi un braccio verso l'esterno, riunisci, ripeti con l'altro braccio, quindi scendi."
+        },
+        {
+          "id": "e-bar-dip",
+          "name": "Dip alla sbarra",
+          "sets": 5,
+          "target": "30 secondi di lavoro",
+          "rest": "90 secondi",
+          "instructions": "Esecuzione normale, portando il petto alla sbarra."
+        },
+        {
+          "id": "e-warmup",
+          "name": "Riscaldamento stacco e squat",
+          "sets": 2,
+          "target": "10 stacchi + 10 squat",
+          "rest": "60 secondi",
+          "instructions": "Primo giro con bilanciere olimpionico vuoto, secondo giro con 40 kg. Recupera 20 secondi tra i due esercizi."
+        },
+        {
+          "id": "e-stacco-affondi",
+          "name": "Stacco + Affondi",
+          "sets": 5,
+          "optionalSets": 1,
+          "target": "8 stacchi + 8 affondi per lato",
+          "rest": "90-120 secondi",
+          "instructions": "Superserie: stacco con 60 kg, 20 secondi di recupero, poi affondi con due manubri da 10-12 kg. Esegui 5 serie, con una sesta facoltativa."
+        }
       ]
     },
     {
-      "id": "day-6",
-      "label": "Day 6",
-      "type": "Cardio",
+      "id": "giorno-f",
+      "label": "Giorno F",
+      "subtitle": "AMRAP 20 minuti",
+      "type": "amrap",
+      "duration": "20 minuti",
+      "instructions": "Scegli il recupero in base alle tue sensazioni. L'obiettivo è completare il maggior numero di giri possibile nel tempo richiesto.",
       "exercises": [
-        { "id": "day-6-run", "name": "Run", "sets": 1, "target": "1 h", "defaultValue": "" },
-        { "id": "day-6-abs-routine", "name": "Abs routine", "sets": 1, "target": "30 min", "defaultValue": "" }
+        {
+          "id": "f-pull-up-fronte",
+          "name": "Trazioni alla fronte",
+          "target": "8 ripetizioni",
+          "instructions": "Sali fino a portare la sbarra alla fronte, senza fermo."
+        },
+        {
+          "id": "f-split-squat-jump",
+          "name": "Affondi saltati alternati",
+          "target": "10 salti",
+          "instructions": "Cambia gamba durante il salto."
+        },
+        {
+          "id": "f-dip",
+          "name": "Dip",
+          "target": "5 ripetizioni",
+          "instructions": "Scendi fino al parallelo, senza fermo."
+        },
+        {
+          "id": "f-australian-pull-up",
+          "name": "Trazioni australiane",
+          "target": "6 ripetizioni",
+          "instructions": "Esegui alla sbarra. Se non puoi mantenere il corpo parallelo, aumenta a 8-10 ripetizioni."
+        },
+        {
+          "id": "f-air-squat",
+          "name": "Squat a corpo libero",
+          "target": "10 ripetizioni",
+          "instructions": "Scendi leggermente sotto il parallelo."
+        },
+        {
+          "id": "f-inclined-ring-push-up",
+          "name": "Piegamenti inclinati agli anelli",
+          "target": "6 ripetizioni",
+          "instructions": "Se non puoi usare gli anelli, esegui l'esercizio su una sbarra bassa."
+        },
+        {
+          "id": "f-dead-hang",
+          "name": "Sospensione passiva",
+          "target": "20 secondi",
+          "instructions": "Lascia il corpo completamente appeso, senza attivazioni."
+        },
+        {
+          "id": "f-planche-lean-push-up",
+          "name": "Piegamenti in planche lean",
+          "target": "3 ripetizioni",
+          "instructions": "Mantieni la posizione hollow, le spalle lontane dalle orecchie, lo sguardo a 45 gradi, le braccia tese e leggermente extraruotate senza iperestenderle, il bacino in retroversione, l'addome contratto e le gambe tese."
+        },
+        {
+          "id": "f-calf-raises",
+          "name": "Sollevamenti sui polpacci",
+          "target": "20 ripetizioni",
+          "instructions": "Posizionati su un rialzo e completa tutta l'escursione sia in discesa sia in salita."
+        }
       ]
     },
     {
-      "id": "day-7",
-      "label": "Day 7",
-      "type": "Rest",
-      "exercises": []
+      "id": "addome-cardio",
+      "label": "Addome + Cardio",
+      "type": "standard",
+      "exercises": [
+        {
+          "id": "core-barchetta",
+          "name": "Barchetta",
+          "sets": 1,
+          "target": "20 secondi",
+          "rest": "",
+          "instructions": ""
+        },
+        {
+          "id": "core-pallina-bastone",
+          "name": "Pallina - Bastone",
+          "sets": 1,
+          "target": "20 secondi",
+          "rest": "",
+          "instructions": ""
+        },
+        {
+          "id": "core-raises-barchetta",
+          "name": "Sollevamenti in barchetta con ginocchia al petto",
+          "sets": 1,
+          "target": "20 secondi",
+          "rest": "",
+          "instructions": "Puoi tenere le mani sotto al bacino oppure dietro la testa."
+        },
+        {
+          "id": "core-crunch-farfalla",
+          "name": "Crunch con gambe a farfalla",
+          "sets": 1,
+          "target": "20 secondi",
+          "rest": "",
+          "instructions": ""
+        },
+        {
+          "id": "core-cardio",
+          "name": "Cardio",
+          "sets": 1,
+          "target": "Durata libera",
+          "rest": "",
+          "instructions": "Regola durata e intensità in base alle tue sensazioni."
+        }
+      ]
     }
   ]
 }

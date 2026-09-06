@@ -1,59 +1,55 @@
-// localStorage-backed app state. No plan data or progress ever leaves the browser
-// except through the explicit GitHub write path in github.js.
 const STORAGE_KEYS = {
-  currentDayId: "workout.currentDayId",
+  currentSessionId: "workout.currentSessionId",
   progress: "workout.progress",
-  token: "workout.token",
 };
 
-function getToken() {
-  return localStorage.getItem(STORAGE_KEYS.token) || "";
-}
-
-function setToken(token) {
-  if (token) {
-    localStorage.setItem(STORAGE_KEYS.token, token);
-  } else {
-    localStorage.removeItem(STORAGE_KEYS.token);
-  }
-}
-
-function getCurrentDayId(plan) {
-  const stored = localStorage.getItem(STORAGE_KEYS.currentDayId);
-  if (stored && plan.days.some((d) => d.id === stored)) {
+function getCurrentSessionId(plan) {
+  const stored = localStorage.getItem(STORAGE_KEYS.currentSessionId);
+  if (stored && plan.sessions.some((session) => session.id === stored)) {
     return stored;
   }
-  return plan.days[0] ? plan.days[0].id : null;
+  return plan.sessions[0]?.id || null;
 }
 
-function setCurrentDayId(dayId) {
-  localStorage.setItem(STORAGE_KEYS.currentDayId, dayId);
+function setCurrentSessionId(sessionId) {
+  localStorage.setItem(STORAGE_KEYS.currentSessionId, sessionId);
 }
 
-function getProgress(dayId) {
+function getProgress(sessionId) {
+  const emptyProgress = { sessionId, checked: {} };
   const raw = localStorage.getItem(STORAGE_KEYS.progress);
-  if (!raw) return { dayId, checked: {} };
+  if (!raw) return emptyProgress;
+
   try {
     const parsed = JSON.parse(raw);
-    if (parsed.dayId !== dayId) return { dayId, checked: {} };
+    if (parsed.sessionId !== sessionId || !parsed.checked || typeof parsed.checked !== "object") {
+      return emptyProgress;
+    }
     return parsed;
   } catch {
-    return { dayId, checked: {} };
+    return emptyProgress;
   }
 }
 
-function setChecked(dayId, key, value) {
-  const progress = getProgress(dayId);
-  progress.checked[key] = value;
+function setChecked(sessionId, key, value) {
+  const progress = getProgress(sessionId);
+  if (value) {
+    progress.checked[key] = true;
+  } else {
+    delete progress.checked[key];
+  }
   localStorage.setItem(STORAGE_KEYS.progress, JSON.stringify(progress));
 }
 
-function clearProgress(dayId) {
-  localStorage.setItem(STORAGE_KEYS.progress, JSON.stringify({ dayId, checked: {} }));
+function clearProgress(sessionId) {
+  localStorage.setItem(
+    STORAGE_KEYS.progress,
+    JSON.stringify({ sessionId, checked: {} })
+  );
 }
 
-function nextDayId(plan, currentDayId) {
-  const idx = plan.days.findIndex((d) => d.id === currentDayId);
-  const nextIdx = (idx + 1) % plan.days.length;
-  return plan.days[nextIdx].id;
+function nextSessionId(plan, currentSessionId) {
+  const index = plan.sessions.findIndex((session) => session.id === currentSessionId);
+  if (index < 0 || plan.sessions.length === 0) return null;
+  return plan.sessions[(index + 1) % plan.sessions.length].id;
 }
