@@ -2,8 +2,6 @@ name: Validate workout plan
 
 on:
   pull_request:
-    paths:
-      - "data/**"
 
 permissions:
   contents: read

@@ -20,8 +20,26 @@
     <section id="workout-app" aria-live="polite"></section>
   </main>
 
+  <nav class="app-nav" aria-label="Sezioni dell'allenamento">
+    <button type="button" data-view="plan">
+      <span aria-hidden="true">▦</span>
+      Piano
+    </button>
+    <button type="button" data-view="day">
+      <span aria-hidden="true">◫</span>
+      Giorno
+    </button>
+    <button type="button" data-view="workout">
+      <span aria-hidden="true">▶</span>
+      Allenamento
+    </button>
+  </nav>
+
   <script src="assets/state.js"></script>
   <script src="assets/plan.js"></script>
+  <script src="assets/ui.js"></script>
+  <script src="assets/tab-plan.js"></script>
+  <script src="assets/tab-day.js"></script>
   <script src="assets/tab-workout.js"></script>
   <script src="assets/app.js"></script>
 </body>
