@@ -1,6 +1,14 @@
 function renderWorkout(container, plan, onSessionAdvanced) {
   let timerId = null;
   let timerCleanup = null;
+  function updateSocialStatus() {
+    const status = container.querySelector("[data-social-status]");
+    if (status) {
+      const social = window.workoutSocial;
+      status.textContent = social.snapshot().error || social.completionMessage(status.dataset.socialStatus);
+    }
+  }
+  window.addEventListener("workout-social-change", updateSocialStatus);
 
   function stopTimer() {
     if (timerId !== null) {
@@ -113,7 +121,9 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
     exerciseSelect.addEventListener("change", () => {
       if (!exerciseSelect.value) return;
-      completeStepsBefore(plan, session.id, exerciseSelect.value);
+      applyWorkoutProgress(plan, session.id, () => {
+        completeStepsBefore(plan, session.id, exerciseSelect.value);
+      });
       renderCurrent();
     });
     exerciseField.appendChild(exerciseSelect);
@@ -298,7 +308,10 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     if (step.optional) {
       const skip = createButton("Salta", "btn btn-secondary");
       skip.addEventListener("click", () => {
-        setStepStatus(getCurrentSessionId(plan), step.key, "skipped");
+        const sessionId = getCurrentSessionId(plan);
+        applyWorkoutProgress(plan, sessionId, () => {
+          setStepStatus(sessionId, step.key, "skipped");
+        });
         renderCurrent();
       });
       actions.appendChild(skip);
@@ -310,7 +323,9 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     );
     complete.addEventListener("click", () => {
       const sessionId = getCurrentSessionId(plan);
-      setStepStatus(sessionId, step.key, "completed");
+      applyWorkoutProgress(plan, sessionId, () => {
+        setStepStatus(sessionId, step.key, "completed");
+      });
       const nextStep = summary.steps[summary.currentIndex + 1];
       if (step.type === "set" && nextStep && step.exercise.rest) {
         const durationSeconds = parseRestDurationSeconds(step.exercise.rest);
@@ -475,8 +490,10 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     const complete = createButton("Completa AMRAP", "btn btn-primary");
     complete.disabled = remainingMilliseconds !== 0;
     complete.addEventListener("click", () => {
-      updateAmrap(session.id, { completed: true });
-      setStepStatus(session.id, step.key, "completed");
+      applyWorkoutProgress(plan, session.id, () => {
+        updateAmrap(session.id, { completed: true });
+        setStepStatus(session.id, step.key, "completed");
+      });
       renderCurrent();
     });
     actions.appendChild(complete);
@@ -499,6 +516,13 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         "view-description"
       )
     );
+
+    const socialStatus = textEl("p", "", "view-description");
+    socialStatus.dataset.socialStatus = summary.progress.runId || "";
+    socialStatus.setAttribute("role", "status");
+    socialStatus.textContent = window.workoutSocial.snapshot().error
+      || window.workoutSocial.completionMessage(summary.progress.runId);
+    card.appendChild(socialStatus);
 
     const actions = document.createElement("div");
     actions.className = "workout-actions";
@@ -531,6 +555,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
   renderCurrent();
   return () => {
     stopTimer();
+    window.removeEventListener("workout-social-change", updateSocialStatus);
   };
 }
 

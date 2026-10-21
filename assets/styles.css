@@ -72,6 +72,7 @@ main {
 
 main {
   padding-bottom: 32px;
+  overflow-wrap: anywhere;
 }
 
 .view-intro {
@@ -724,7 +725,7 @@ main {
   left: 12px;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   width: min(calc(100% - 24px), 724px);
   margin: 0 auto;
   padding: 6px;
@@ -756,6 +757,108 @@ main {
 .app-nav button.active {
   background: var(--surface-soft);
   color: var(--accent);
+}
+
+.social-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.social-panel label {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.social-panel summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.social-panel input,
+.social-panel textarea,
+.social-panel select {
+  min-width: 0;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.social-panel textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.social-status {
+  white-space: pre-line;
+}
+
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.plan-editor fieldset {
+  min-width: 0;
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.plan-editor legend {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.plan-editor .btn {
+  margin: 4px 0;
+}
+
+.social-status {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.social-status.error {
+  color: var(--danger);
+}
+
+.leaderboard-scroll {
+  overflow-x: auto;
+}
+
+.leaderboard {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard caption {
+  padding: 12px 0;
+  text-align: left;
+  color: var(--text-muted);
+}
+
+.leaderboard th,
+.leaderboard td {
+  padding: 12px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.leaderboard-self {
+  color: var(--accent);
+  font-weight: 800;
 }
 
 @media (min-width: 640px) {

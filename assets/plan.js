@@ -5,5 +5,8 @@ async function loadPlan() {
   if (!response.ok) {
     throw new Error(`Caricamento del piano non riuscito: ${response.status}`);
   }
-  return response.json();
+  const plan = await response.json();
+  const errors = validateWorkoutPlan(plan);
+  if (errors.length) throw new Error(errors.join("\n"));
+  return plan;
 }

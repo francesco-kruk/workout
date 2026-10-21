@@ -1,0 +1,12 @@
+{
+  "name": "workout",
+  "private": true,
+  "scripts": {
+    "test": "node --test",
+    "validate": "node scripts/validate-plan.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "jsdom": "^26.1.0"
+  }
+}
