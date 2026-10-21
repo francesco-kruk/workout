@@ -9,26 +9,6 @@ function renderLeaderboard(container) {
 
   const status = textEl("p", "", "social-status");
   status.setAttribute("role", "status");
-  const login = document.createElement("form");
-  login.className = "social-panel";
-  const emailLabel = textEl("label", "Email invitata");
-  const email = document.createElement("input");
-  email.type = "email";
-  email.required = true;
-  email.autocomplete = "email";
-  emailLabel.appendChild(email);
-  const send = createButton("Invia link di accesso", "btn btn-primary");
-  send.type = "submit";
-  login.append(
-    textEl("p", "L'accesso è riservato agli amici invitati. Non serve una password.", "view-description"),
-    emailLabel,
-    send
-  );
-  login.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void social.signIn(email.value.trim());
-  });
-
   const account = document.createElement("section");
   account.className = "social-panel";
   const memberStatus = textEl("p", "", "view-description");
@@ -50,9 +30,7 @@ function renderLeaderboard(container) {
   actions.className = "workout-actions";
   const refresh = createButton("Aggiorna / riprova", "btn btn-primary");
   refresh.addEventListener("click", () => { void social.refresh(); });
-  const logout = createButton("Esci", "btn btn-secondary");
-  logout.addEventListener("click", () => { void social.signOut(); });
-  actions.append(refresh, logout);
+  actions.append(refresh);
   account.append(memberStatus, profile, actions);
 
   const standings = document.createElement("section");
@@ -93,7 +71,7 @@ function renderLeaderboard(container) {
   const ruleDetails = document.createElement("details");
   ruleDetails.className = "social-panel";
   ruleDetails.append(textEl("summary", "Regole e sincronizzazione"), rules);
-  container.append(status, login, standings, account, ruleDetails);
+  container.append(status, standings, account, ruleDetails);
   let displayedUser = null;
   let displayedName = null;
 
@@ -114,11 +92,10 @@ function renderLeaderboard(container) {
         : state.notice || (pending
           ? `${pending} presenze in attesa di sincronizzazione per questo account.`
           : state.member ? "Presenze sincronizzate." : ""));
-    login.hidden = !state.configured || !state.ready || Boolean(state.user);
     account.hidden = !state.user;
     profile.hidden = !state.member;
     standings.hidden = !state.member;
-    send.disabled = save.disabled = refresh.disabled = logout.disabled = state.busy;
+    save.disabled = refresh.disabled = state.busy;
     memberStatus.textContent = state.member
       ? `Accesso come ${state.member.display_name}. ${pending} presenze in attesa.`
       : "Account connesso, in attesa di approvazione al gruppo. Chiedi al proprietario di abilitarti.";

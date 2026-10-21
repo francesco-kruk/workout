@@ -35,22 +35,37 @@ async function until(predicate) {
   assert.fail("Application did not reach the expected state");
 }
 
-async function mount(t, { plans = new Map(), storage = {}, planError = null, templateError = null, signedIn = true } = {}) {
-  const dom = new JSDOM(html, { url: "https://example.github.io/workout/", runScripts: "outside-only" });
+async function mount(t, {
+  plans = new Map(), storage = {}, planError = null, templateError = null, signedIn = true,
+  approved = true, membershipError = null, beforeBoot = () => {}, beforeSession = null,
+  beforeMembership = null, beforePlan = null, beforeTemplate = null, hash = "",
+} = {}) {
+  const dom = new JSDOM(html, { url: `https://example.github.io/workout/${hash}`, runScripts: "outside-only" });
   t.after(() => dom.window.close());
   const w = dom.window;
   w.structuredClone = structuredClone;
   w.scrollTo = () => {};
   w.console.error = () => {};
-  const state = { id: signedIn ? alice : null, plans, planError, calls: [], history: [], records: new Map(), beforePlan: null };
+  const state = { id: signedIn ? alice : null, plans, planError, calls: [], history: [], records: new Map(),
+    approved, membershipError, beforeSession, beforeMembership, beforePlan, beforeRpc: null, authError: null };
   for (const entry of plans.values()) state.records.set(entry.id, entry);
   for (const [key, value] of Object.entries(storage)) w.localStorage.setItem(key, value);
   for (const file of scripts.filter((file) => file !== "app.js")) w.eval(source.get(file));
   const client = {
     auth: {
-      getSession: async () => ({ data: { session: state.id ? { user: { id: state.id } } : null }, error: null }),
+      getSession: async () => {
+        if (state.beforeSession) await state.beforeSession();
+        return { data: { session: state.id ? { user: { id: state.id } } : null }, error: state.authError };
+      },
       onAuthStateChange: (callback) => { state.callback = callback; },
-      signOut: async () => { state.id = null; return { data: null, error: null }; },
+      signInWithOtp: async (args) => {
+        state.login = args;
+        return { data: {}, error: state.authError };
+      },
+      signOut: async () => {
+        if (!state.authError) state.id = null;
+        return { data: null, error: state.authError };
+      },
     },
     from: (table) => {
       let userId = state.id;
@@ -58,7 +73,10 @@ async function mount(t, { plans = new Map(), storage = {}, planError = null, tem
         select: () => chain, order: () => chain, limit: () => chain,
         eq: (_field, value) => { userId = value; return chain; },
         maybeSingle: async () => {
-          if (table === "friend_members") return { data: { user_id: userId, display_name: "Amico" }, error: null };
+          if (table === "friend_members") {
+            if (state.beforeMembership) await state.beforeMembership(userId);
+            return { data: state.approved ? { user_id: userId, display_name: "Amico" } : null, error: state.membershipError };
+          }
           if (state.beforePlan) await state.beforePlan(userId);
           return { data: plans.get(userId) || null, error: state.planError };
         },
@@ -67,6 +85,7 @@ async function mount(t, { plans = new Map(), storage = {}, planError = null, tem
     },
     rpc: async (name, args) => {
       state.calls.push({ name, args });
+      if (state.beforeRpc) await state.beforeRpc(name, args);
       if (name === "friends_leaderboard") return { data: [], error: null };
       if (name === "workout_history") return { data: state.history, error: null };
       if (name === "save_workout_plan") {
@@ -98,12 +117,14 @@ async function mount(t, { plans = new Map(), storage = {}, planError = null, tem
   w.loadSupabaseClient = async () => ({ createClient: () => client });
   w.WORKOUT_SOCIAL_CONFIG = { url: "https://example.supabase.co", publishableKey: "public" };
   w.loadPlan = async () => {
+    if (beforeTemplate) await beforeTemplate();
     if (templateError) throw templateError;
     return { ...structuredClone(definition), title: "Esempio pubblico" };
   };
+  beforeBoot(w, state);
   w.eval(source.get("app.js"));
   await w.workoutSocial.init();
-  await until(() => !w.document.querySelector("#loading") && !w.workoutLibrary.snapshot().loading);
+  await until(() => !w.document.querySelector("#loading") && !w.workoutSocial.snapshot().busy);
   return { w, state, app: w.document.querySelector("#workout-app") };
 }
 
@@ -122,6 +143,229 @@ function input(w, label, value) {
   return element;
 }
 function snapshotStorage(w) { return Object.fromEntries(Object.keys(w.localStorage).map((key) => [key, w.localStorage.getItem(key)])); }
+
+test("configured signed-out visits show only Accedi and submit an invited-email magic link", async (t) => {
+  const { w, state, app } = await mount(t, { signedIn: false });
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  assert.equal(w.document.querySelector("#sign-out").hidden, true);
+  assert.equal(app.querySelector("h2").textContent, "Accedi");
+  assert.doesNotMatch(app.textContent, /Esempio pubblico|Riscaldamento|Classifica/);
+  input(w, "Email invitata", "friend@example.com");
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  assert.equal(app.querySelector("button[type=submit]").disabled, true);
+  assert.match(app.textContent, /Invio del link/);
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.match(app.textContent, /Controlla la tua email/);
+  assert.equal(app.querySelector('input[type="email"]').value, "friend@example.com");
+  assert.equal(state.login.email, "friend@example.com");
+  assert.equal(state.login.options.shouldCreateUser, false);
+  assert.equal(state.login.options.emailRedirectTo, "https://example.github.io/workout/");
+  assert.equal(state.calls.length, 0);
+});
+
+test("session restoration waits for identity, membership and private plan without any example flash", async (t) => {
+  const a = record(alice, "Solo Alice");
+  let releaseSession, releaseMember, releasePlan;
+  const session = new Promise((resolve) => { releaseSession = resolve; });
+  const member = new Promise((resolve) => { releaseMember = resolve; });
+  const plan = new Promise((resolve) => { releasePlan = resolve; });
+  let w, state;
+  const mounting = mount(t, {
+    plans: new Map([[alice, a]]), beforeSession: () => session, beforeMembership: () => member, beforePlan: () => plan,
+    beforeBoot: (window, fixture) => { w = window; state = fixture; },
+    storage: { "workout.activeView": "leaderboard" },
+  });
+  const assertLoading = () => {
+    assert.equal(w.document.querySelector(".app-nav").hidden, true);
+    assert.match(w.document.querySelector("#workout-app").textContent, /Accesso in corso/);
+    assert.doesNotMatch(w.document.querySelector("#workout-app").textContent, /Solo Alice|Esempio pubblico|Punti mensili/);
+  };
+  assertLoading();
+  releaseSession();
+  await until(() => Boolean(w.workoutSocial.snapshot().user));
+  assertLoading();
+  releaseMember();
+  await until(() => Boolean(w.workoutSocial.snapshot().member));
+  assertLoading();
+  releasePlan();
+  await mounting;
+  assert.equal(w.document.querySelector(".app-nav").hidden, false);
+  assert.equal(w.getActiveView(), "leaderboard");
+  assert.equal(w.workoutLibrary.snapshot().record.id, a.id);
+  assert.equal(w.document.querySelector('input[type="email"]'), null);
+  assert.equal(w.document.querySelector("#sign-out").hidden, false);
+  assert.ok(state.calls.some((call) => call.name === "friends_leaderboard"));
+});
+
+test("private access and sign-in do not wait for a slow public example download", async (t) => {
+  let releaseTemplate;
+  const template = new Promise((resolve) => { releaseTemplate = resolve; });
+  const { w, app } = await mount(t, { signedIn: false, beforeTemplate: () => template });
+  assert.equal(app.querySelector("h2").textContent, "Accedi");
+  releaseTemplate();
+  await until(() => Boolean(w.workoutLibrary.template()));
+  assert.equal(app.querySelector("h2").textContent, "Accedi");
+});
+
+test("resolved private access opens the app without waiting for leaderboard synchronization", async (t) => {
+  const a = record(alice, "Pronta");
+  let w, release;
+  const slow = new Promise((resolve) => { release = resolve; });
+  const mounting = mount(t, {
+    plans: new Map([[alice, a]]),
+    beforeBoot: (window, state) => {
+      w = window;
+      state.beforeRpc = () => slow;
+    },
+  });
+  await until(() => w.workoutSocial.snapshot().accessReady);
+  assert.equal(w.workoutSocial.snapshot().busy, true);
+  assert.equal(w.document.querySelector(".app-nav").hidden, false);
+  assert.match(w.document.querySelector("#workout-app").textContent, /Riscaldamento/);
+  release();
+  await mounting;
+});
+
+test("unapproved accounts see only pending access, then enter plan setup after owner approval", async (t) => {
+  const { w, state, app } = await mount(t, { approved: false });
+  assert.match(app.textContent, /Accesso in attesa di approvazione/);
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  assert.equal(w.document.querySelector("#sign-out").hidden, false);
+  assert.equal(w.workoutLibrary.snapshot().record, null);
+  assert.equal(state.calls.length, 0);
+  navigate(w, "workout");
+  assert.match(app.textContent, /Accesso in attesa/);
+  state.approved = true;
+  click(w, "Aggiorna / riprova");
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(w.getActiveView(), "plan");
+  assert.match(app.textContent, /Crea scheda/);
+  assert.ok(app.querySelector('input[type="file"]'));
+  assert.equal(w.document.querySelector(".app-nav").hidden, false);
+});
+
+test("access failures cannot open cached plans before membership is verified and can be retried", async (t) => {
+  const a = record(alice, "Privato in cache");
+  const { w, state, app } = await mount(t, {
+    membershipError: new Error("Membership unavailable"), plans: new Map([[alice, a]]),
+    storage: { [`workout.personalPlan:${alice}`]: JSON.stringify(a) },
+  });
+  assert.match(app.textContent, /Impossibile verificare l'accesso/);
+  assert.match(app.textContent, /Membership unavailable/);
+  assert.doesNotMatch(app.textContent, /Privato in cache|Esempio pubblico/);
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  state.membershipError = null;
+  click(w, "Aggiorna / riprova");
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(w.workoutLibrary.snapshot().record.id, a.id);
+  assert.equal(w.document.querySelector(".app-nav").hidden, false);
+});
+
+test("failed initial plan loading is not confused with a first-login missing plan", async (t) => {
+  const { w, state, app } = await mount(t, { planError: new Error("Plan unavailable") });
+  assert.match(app.textContent, /Impossibile caricare la tua scheda/);
+  assert.match(app.textContent, /Plan unavailable/);
+  assert.doesNotMatch(app.textContent, /Crea scheda|Esempio pubblico/);
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  state.planError = null;
+  click(w, "Aggiorna / riprova");
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(w.getActiveView(), "plan");
+  assert.match(app.textContent, /Crea scheda/);
+});
+
+test("expired magic links stay on Accedi and allow requesting a fresh link", async (t) => {
+  const { w, state, app } = await mount(t, {
+    signedIn: false, hash: "#error=access_denied&error_description=Link+expired",
+  });
+  assert.equal(w.location.hash, "");
+  assert.equal(app.querySelector("h2").textContent, "Accedi");
+  assert.match(app.textContent, /Link expired/);
+  input(w, "Email invitata", "friend@example.com");
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(state.login.email, "friend@example.com");
+  assert.match(app.textContent, /Controlla la tua email/);
+});
+
+test("sign-out from a workout immediately hides private data, stops timers and preserves scoped progress", async (t) => {
+  const a = record(alice, "Scheda da nascondere");
+  const { w, state, app } = await mount(t, { plans: new Map([[alice, a]]) });
+  w.setCurrentSessionId("circuit");
+  w.setStepStatus("circuit", "warmup:warm", "completed");
+  navigate(w, "workout");
+  click(w, "Avvia timer");
+  w.document.querySelector("#sign-out").click();
+  assert.equal(app.querySelector("h2").textContent, "Accedi");
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  assert.doesNotMatch(app.textContent, /Circuito|Scheda da nascondere|Esempio pubblico/);
+  await until(() => !w.workoutSocial.snapshot().busy);
+  const saved = JSON.parse(w.localStorage.getItem(`workout.progress:${alice}:${a.id}`));
+  assert.ok(saved.sessions.circuit.amrap.remainingMilliseconds > 0);
+  state.id = alice;
+  state.callback("SIGNED_IN", { user: { id: alice } });
+  await until(() => w.workoutSocial.snapshot().accessReady);
+  assert.ok(w.getProgress("circuit").amrap.remainingMilliseconds > 0);
+  assert.match(app.textContent, /Circuito/);
+});
+
+test("failed sign-out shows a retryable access error without exposing the previous account's plan", async (t) => {
+  const a = record(alice, "Scheda privata");
+  const { w, state, app } = await mount(t, { plans: new Map([[alice, a]]) });
+  navigate(w, "plan");
+  state.authError = new Error("Sign-out failed");
+  click(w, "Esci");
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.match(app.textContent, /Uscita non riuscita/);
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  assert.doesNotMatch(app.textContent, /Scheda privata|Esempio pubblico/);
+  assert.equal(w.document.querySelector("#sign-out").hidden, false);
+  state.authError = null;
+  click(w, "Esci");
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(app.querySelector("h2").textContent, "Accedi");
+});
+
+test("an account switch hides the previous plan while the next private plan is loading", async (t) => {
+  const a = record(alice, "Scheda Alice");
+  const b = record(bob, "Scheda Bob");
+  const { w, state, app } = await mount(t, { plans: new Map([[alice, a], [bob, b]]) });
+  navigate(w, "plan");
+  let release;
+  const slow = new Promise((resolve) => { release = resolve; });
+  state.beforePlan = () => slow;
+  state.id = bob;
+  state.callback("SIGNED_IN", { user: { id: bob } });
+  assert.match(app.textContent, /Accesso in corso/);
+  assert.doesNotMatch(app.textContent, /Scheda Alice|Esempio pubblico/);
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  await until(() => Boolean(w.workoutSocial.snapshot().member));
+  assert.doesNotMatch(app.textContent, /Scheda Alice|Scheda Bob/);
+  release();
+  await until(() => w.workoutSocial.snapshot().accessReady);
+  assert.match(app.textContent, /Scheda Bob/);
+  assert.doesNotMatch(app.textContent, /Scheda Alice/);
+});
+
+test("refreshing an already-open offline account does not remount or stop its active workout", async (t) => {
+  const a = record(alice, "Offline");
+  const { w, state, app } = await mount(t, { plans: new Map([[alice, a]]) });
+  w.setCurrentSessionId("circuit");
+  w.setStepStatus("circuit", "warmup:warm", "completed");
+  navigate(w, "workout");
+  click(w, "Avvia timer");
+  const timer = app.querySelector(".amrap-timer");
+  const firstChild = app.firstChild;
+  Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
+  w.dispatchEvent(new w.Event("offline"));
+  state.membershipError = new Error("Offline membership request");
+  await w.workoutSocial.refresh();
+  assert.equal(app.firstChild, firstChild);
+  assert.equal(app.querySelector(".amrap-timer"), timer);
+  assert.equal(w.document.querySelector(".app-nav").hidden, false);
+  assert.equal([...app.querySelectorAll("button")].find((button) => button.textContent === "Pausa")?.disabled, false);
+  assert.match(w.document.querySelector("#account-status").textContent, /Offline membership request/);
+});
 
 test("one shared URL loads different private plans, without copying guest progress into either account", async (t) => {
   const a = record(alice, "Scheda Alice");
@@ -169,8 +413,8 @@ test("switching accounts stops old AMRAP timers before the storage namespace cha
 
 test("first-time member creates a private plan with the editor and can publish without forking", async (t) => {
   const { w, state, app } = await mount(t);
-  assert.match(app.textContent, /Crea o importa/);
-  navigate(w, "plan");
+  assert.equal(w.getActiveView(), "plan");
+  assert.match(app.textContent, /Non hai ancora una scheda personale/);
   click(w, "Crea scheda");
   input(w, "Titolo della scheda", "La mia nuova scheda");
   input(w, "Nome", "Mobilità");

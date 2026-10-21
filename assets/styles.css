@@ -18,6 +18,29 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
+body.auth-entry {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.auth-panel {
+  max-width: 480px;
+  margin: 24px auto;
+  padding: 24px;
+}
+
+.auth-panel h2 {
+  margin-top: 0;
+  outline: none;
+}
+
+.auth-panel .btn {
+  margin-top: 12px;
+}
+
 html {
   background: var(--bg);
 }
