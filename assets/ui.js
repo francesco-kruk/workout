@@ -1,6 +1,6 @@
 function textEl(tag, text, className) {
   const element = document.createElement(tag);
-  element.textContent = text;
+  element.textContent = text ?? "";
   if (className) element.className = className;
   return element;
 }

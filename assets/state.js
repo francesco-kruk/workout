@@ -5,10 +5,19 @@ const STORAGE_KEYS = {
 };
 
 const PROGRESS_VERSION = 2;
-const VALID_VIEWS = new Set(["plan", "day", "workout"]);
+const VALID_VIEWS = new Set(["plan", "day", "workout", "leaderboard"]);
+let workoutScope = "";
+
+function workoutStorageKey(key) {
+  return workoutScope ? `${key}:${workoutScope}` : key;
+}
+
+function setWorkoutScope(userId, versionId) {
+  workoutScope = userId ? `${userId}:${versionId || "unselected"}` : "";
+}
 
 function getCurrentSessionId(plan) {
-  const stored = localStorage.getItem(STORAGE_KEYS.currentSessionId);
+  const stored = localStorage.getItem(workoutStorageKey(STORAGE_KEYS.currentSessionId));
   if (stored && plan.sessions.some((session) => session.id === stored)) {
     return stored;
   }
@@ -16,7 +25,7 @@ function getCurrentSessionId(plan) {
 }
 
 function setCurrentSessionId(sessionId) {
-  localStorage.setItem(STORAGE_KEYS.currentSessionId, sessionId);
+  localStorage.setItem(workoutStorageKey(STORAGE_KEYS.currentSessionId), sessionId);
 }
 
 function getActiveView() {
@@ -32,7 +41,7 @@ function setActiveView(view) {
 
 function readProgressStore() {
   const emptyStore = { version: PROGRESS_VERSION, sessions: {} };
-  const raw = localStorage.getItem(STORAGE_KEYS.progress);
+  const raw = localStorage.getItem(workoutStorageKey(STORAGE_KEYS.progress));
   if (!raw) return emptyStore;
 
   try {
@@ -67,13 +76,15 @@ function readProgressStore() {
 }
 
 function writeProgressStore(store) {
-  localStorage.setItem(STORAGE_KEYS.progress, JSON.stringify(store));
+  localStorage.setItem(workoutStorageKey(STORAGE_KEYS.progress), JSON.stringify(store));
 }
 
 function getProgress(sessionId) {
   const stored = readProgressStore().sessions[sessionId];
   return {
     sessionId,
+    runId: typeof stored?.runId === "string" ? stored.runId : null,
+    legacyCompletion: stored?.legacyCompletion === true,
     steps: isObject(stored?.steps) ? { ...stored.steps } : {},
     history: Array.isArray(stored?.history) ? [...stored.history] : [],
     amrap: normalizeAmrap(stored?.amrap),
@@ -161,6 +172,7 @@ function clearRestTimer(sessionId) {
 function clearProgress(sessionId) {
   const store = readProgressStore();
   store.sessions[sessionId] = {
+    runId: crypto.randomUUID(),
     steps: {},
     history: [],
     amrap: normalizeAmrap(),
@@ -256,6 +268,8 @@ function parseRestDurationSeconds(duration) {
 function getStoredSession(store, sessionId) {
   const stored = store.sessions[sessionId];
   return {
+    runId: typeof stored?.runId === "string" ? stored.runId : crypto.randomUUID(),
+    legacyCompletion: stored?.legacyCompletion === true,
     steps: isObject(stored?.steps) ? { ...stored.steps } : {},
     history: Array.isArray(stored?.history) ? [...stored.history] : [],
     amrap: normalizeAmrap(stored?.amrap),

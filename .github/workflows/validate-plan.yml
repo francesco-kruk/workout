@@ -1,4 +1,4 @@
-name: Validate workout plan
+name: Validate workout app
 
 on:
   pull_request:
@@ -14,4 +14,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
       - run: node scripts/validate-plan.mjs
+      - run: npm test
