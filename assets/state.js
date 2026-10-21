@@ -77,6 +77,7 @@ function getProgress(sessionId) {
     steps: isObject(stored?.steps) ? { ...stored.steps } : {},
     history: Array.isArray(stored?.history) ? [...stored.history] : [],
     amrap: normalizeAmrap(stored?.amrap),
+    restTimer: normalizeRestTimer(stored?.restTimer),
   };
 }
 
@@ -111,6 +112,7 @@ function completeStepsBefore(plan, sessionId, targetKey) {
     ...progress.history.filter((key) => !precedingKeySet.has(key)),
     ...precedingKeys,
   ];
+  progress.restTimer = null;
   store.sessions[sessionId] = progress;
   writeProgressStore(store);
   return true;
@@ -143,12 +145,26 @@ function updateAmrap(sessionId, updates) {
   return { ...progress.amrap };
 }
 
+function updateRestTimer(sessionId, timer) {
+  const store = readProgressStore();
+  const progress = getStoredSession(store, sessionId);
+  progress.restTimer = normalizeRestTimer(timer);
+  store.sessions[sessionId] = progress;
+  writeProgressStore(store);
+  return normalizeRestTimer(progress.restTimer);
+}
+
+function clearRestTimer(sessionId) {
+  updateRestTimer(sessionId, null);
+}
+
 function clearProgress(sessionId) {
   const store = readProgressStore();
   store.sessions[sessionId] = {
     steps: {},
     history: [],
     amrap: normalizeAmrap(),
+    restTimer: null,
   };
   writeProgressStore(store);
 }
@@ -231,12 +247,19 @@ function parseDurationSeconds(duration) {
   return match ? Number(match[1]) * 60 : 0;
 }
 
+function parseRestDurationSeconds(duration) {
+  const values = String(duration).match(/\d+(?:[.,]\d+)?/g)?.map(Number) || [];
+  if (values.length === 0) return 0;
+  return Math.round(values.length > 1 ? (values[0] + values[1]) / 2 : values[0]);
+}
+
 function getStoredSession(store, sessionId) {
   const stored = store.sessions[sessionId];
   return {
     steps: isObject(stored?.steps) ? { ...stored.steps } : {},
     history: Array.isArray(stored?.history) ? [...stored.history] : [],
     amrap: normalizeAmrap(stored?.amrap),
+    restTimer: normalizeRestTimer(stored?.restTimer),
   };
 }
 
@@ -250,6 +273,23 @@ function normalizeAmrap(amrap) {
       : legacyMilliseconds,
     rounds: Number.isFinite(amrap?.rounds) ? Math.max(0, amrap.rounds) : 0,
     completed: Boolean(amrap?.completed),
+  };
+}
+
+function normalizeRestTimer(timer) {
+  if (!isObject(timer) || !Number.isFinite(timer.durationSeconds)) return null;
+
+  const deadline = Number.isFinite(timer.deadline) ? timer.deadline : null;
+  const remainingMilliseconds = Number.isFinite(timer.remainingMilliseconds)
+    ? Math.max(0, timer.remainingMilliseconds)
+    : 0;
+  return {
+    durationSeconds: Math.max(0, timer.durationSeconds),
+    deadline,
+    remainingMilliseconds:
+      deadline === null
+        ? remainingMilliseconds
+        : Math.max(0, deadline - Date.now()),
   };
 }
 

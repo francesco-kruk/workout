@@ -618,6 +618,20 @@ main {
   background: var(--surface-soft);
 }
 
+.rest-timer {
+  display: grid;
+  justify-items: center;
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.rest-timer .focus-kicker {
+  margin-bottom: 10px;
+}
+
 .timer-value {
   color: var(--accent);
   font-size: clamp(3rem, 18vw, 5.5rem);

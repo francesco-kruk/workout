@@ -37,6 +37,11 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     container.appendChild(createProgress(summary, "step completati"));
 
     if (summary.currentIndex < 0) {
+      if (session.type !== "amrap" && summary.progress.restTimer) {
+        container.appendChild(
+          renderRestTimer(session.id, summary.progress.restTimer)
+        );
+      }
       container.appendChild(renderCompletion(session, summary));
       return;
     }
@@ -57,8 +62,12 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       container.appendChild(renderAmrapStep(step, summary.progress));
     }
 
+    if (step.type !== "amrap" && summary.progress.restTimer) {
+      container.appendChild(renderRestTimer(session.id, summary.progress.restTimer));
+    }
+
     if (step.type !== "amrap") {
-      container.appendChild(renderStepActions(step, summary.progress));
+      container.appendChild(renderStepActions(step, summary));
     }
   }
 
@@ -181,7 +190,98 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     return card;
   }
 
-  function renderStepActions(step, progress) {
+  function renderRestTimer(sessionId, initialTimer) {
+    const timer = document.createElement("section");
+    timer.className = "rest-timer";
+    timer.setAttribute("aria-label", "Timer di recupero");
+
+    const title = textEl("p", "Recupero", "focus-kicker");
+    const timeDisplay = textEl(
+      "strong",
+      formatTime(Math.ceil(initialTimer.remainingMilliseconds / 1000)),
+      "timer-value"
+    );
+    const status = textEl("span", "", "timer-status");
+    const toggle = createButton("", "btn btn-primary");
+    const skip = createButton("Salta recupero", "btn btn-secondary");
+
+    function startTicker() {
+      if (timerId !== null) return;
+      timerId = window.setInterval(() => {
+        const active = getProgress(sessionId).restTimer;
+        if (!active || active.deadline === null) {
+          stopTimer();
+          refreshTimerUi();
+          return;
+        }
+        if (active.deadline <= Date.now()) {
+          updateRestTimer(sessionId, {
+            ...active,
+            deadline: null,
+            remainingMilliseconds: 0,
+          });
+          window.clearInterval(timerId);
+          timerId = null;
+        }
+        refreshTimerUi();
+      }, 1000);
+    }
+
+    function refreshTimerUi() {
+      const current = getProgress(sessionId).restTimer;
+      if (!current) return;
+
+      const remaining = current.deadline === null
+        ? current.remainingMilliseconds
+        : Math.max(0, current.deadline - Date.now());
+      const finished = remaining === 0;
+      const running = current.deadline !== null && !finished;
+      timeDisplay.textContent = formatTime(Math.ceil(remaining / 1000));
+      status.textContent = finished
+        ? "Recupero completato"
+        : running
+          ? "Timer in corso"
+          : "Timer in pausa";
+      toggle.textContent = finished ? "Completo" : running ? "Pausa" : "Riprendi";
+      toggle.disabled = finished;
+    }
+
+    toggle.addEventListener("click", () => {
+      const current = getProgress(sessionId).restTimer;
+      if (!current) return;
+
+      if (current.deadline !== null) {
+        updateRestTimer(sessionId, {
+          ...current,
+          deadline: null,
+          remainingMilliseconds: Math.max(0, current.deadline - Date.now()),
+        });
+      } else {
+        updateRestTimer(sessionId, {
+          ...current,
+          deadline: Date.now() + current.remainingMilliseconds,
+        });
+        startTicker();
+      }
+      refreshTimerUi();
+    });
+
+    skip.addEventListener("click", () => {
+      clearRestTimer(sessionId);
+      renderCurrent();
+    });
+    timer.append(title, timeDisplay, status);
+    const controls = document.createElement("div");
+    controls.className = "timer-controls";
+    controls.append(toggle, skip);
+    timer.appendChild(controls);
+    refreshTimerUi();
+    if (initialTimer.deadline !== null) startTicker();
+    return timer;
+  }
+
+  function renderStepActions(step, summary) {
+    const progress = summary.progress;
     const actions = document.createElement("div");
     actions.className = "workout-actions";
 
@@ -189,6 +289,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       const back = createButton("Indietro", "btn btn-secondary");
       back.addEventListener("click", () => {
         undoLastStep(getCurrentSessionId(plan));
+        clearRestTimer(getCurrentSessionId(plan));
         renderCurrent();
       });
       actions.appendChild(back);
@@ -208,7 +309,19 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       "btn btn-primary"
     );
     complete.addEventListener("click", () => {
-      setStepStatus(getCurrentSessionId(plan), step.key, "completed");
+      const sessionId = getCurrentSessionId(plan);
+      setStepStatus(sessionId, step.key, "completed");
+      const nextStep = summary.steps[summary.currentIndex + 1];
+      if (step.type === "set" && nextStep && step.exercise.rest) {
+        const durationSeconds = parseRestDurationSeconds(step.exercise.rest);
+        if (durationSeconds > 0) {
+          updateRestTimer(sessionId, {
+            durationSeconds,
+            remainingMilliseconds: durationSeconds * 1000,
+            deadline: Date.now() + durationSeconds * 1000,
+          });
+        }
+      }
       renderCurrent();
     });
     actions.appendChild(complete);
