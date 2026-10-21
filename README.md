@@ -17,8 +17,10 @@ python3 -m http.server 8000 --bind 127.0.0.1
 Open `http://127.0.0.1:8000/`. The public Supabase connection is configured in
 `assets/social-config.js`; private features also require the database migrations,
 Auth settings, and approved membership below.
-Normal workout tracking remains available without Supabase or an internet
-connection once the page and workout plan have loaded. Reopening the site offline
+With no Supabase configuration, the app opens the local example and saves progress
+only in this browser. In a configured app, sign in and load your private plan
+online first; workout tracking then remains available in the already-open app
+without an internet connection. Reopening the site offline
 is not supported: there is no service worker.
 
 ## Configure the private leaderboard
@@ -76,10 +78,22 @@ is not supported: there is no service worker.
    password in frontend files, Git, or GitHub Pages.** The pinned browser client
    loads from esm.sh only when social configuration is present; npm dependencies
    are used only for development tests.
-7. Publish the static files through the existing GitHub Pages setup. Sign in
-   through **Classifica** using an invited email address and choose your display
-   name. Wait for membership to load, then open **Piano** to create/import and
-   publish your personal plan before training.
+7. Publish the static files through the existing GitHub Pages setup. The configured
+   app restores an existing session automatically or opens **Accedi**. Enter an
+   invited email address and follow the magic link; no password is required.
+   The app waits for identity, membership, and the private plan before opening
+   the four tabs. New members without a plan land directly on **Piano** to
+   create/import and publish one. **Classifica** shows standings and display-name
+   settings, not the login form. An authenticated but unapproved account sees
+   only an access-pending screen with retry and sign-out controls.
+
+**Esci** is available in the header on every signed-in screen. It immediately
+hides the account's plan/history and stops active timers, returning to **Accedi**
+without showing the example or another account's data. Local drafts, progress,
+and pending completions remain isolated for the next sign-in by their owner.
+If access or initial plan loading fails, an explicit recovery screen allows
+retrying instead of opening an example or treating the failure as a missing plan.
+An already-loaded, approved account can keep training during an outage.
 
 Use Supabase administration to remove a member or correct/delete attendance.
 Deleting a `friend_members` row cascades that member's attendance. Removing a
@@ -216,9 +230,11 @@ When disconnected, any displayed standings are labeled with their last update.
   their own attendance. Server rules protect identities, group access, and
   score calculation, not physical-visit verification.
 
-Missing configuration, unavailable email delivery, or backend outages do not
-disable local workout tracking. The leaderboard and workout finish screen show
-social configuration, synchronization, or storage errors explicitly.
+Missing configuration preserves local example mode. A configured app requires
+sign-in and approved membership; unavailable email delivery or initial backend
+access is surfaced on the entry screen, with no guest bypass. Backend outages do
+not interrupt an already-loaded workout. The entry screen, header, leaderboard,
+and workout finish screen surface access, synchronization, or storage errors.
 
 ## Development checks
 
@@ -243,7 +259,10 @@ CI runs the same checks.
 Before declaring a production rollout complete, verify on the configured Pages
 site with two invited accounts:
 
-1. Email links return to the exact project URL; expired links show an error.
+1. Signed-out visits open **Accedi** without tabs or example data. Email links
+   return to the exact project URL; expired links show an error and allow
+   requesting another link. Reloading restores a valid session without a guest
+   plan flash. New approved members land on the create/import screen in **Piano**.
 2. Members see one another's standings and can edit only their own names.
    Unapproved accounts see no private data. Two approved members each create a
    different plan at the same URL and cannot read each other's plans/history.
@@ -261,8 +280,9 @@ site with two invited accounts:
    workout and verify the explicit version-switch choice and conflict handling.
 
 The public project URL, publishable client key, and final GitHub Pages URL are
-configured. Owner-side migrations, invitations/memberships, and email/redirect
-configuration must still be completed before hosted activation. GitHub Pages
+configured. This frontend flow requires no additional migrations or changes to
+owner-side invitations, approval, SMTP, or credentials. Hosted email delivery
+and real-account redirects still need end-to-end verification. GitHub Pages
 publishes the repository's `main` branch at `/`; worktree changes are not live
 until published there through the normal review/deployment process.
 Do not send service-role keys or database/SMTP passwords.

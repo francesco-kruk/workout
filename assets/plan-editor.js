@@ -73,7 +73,7 @@ function renderPersonalPlan(container) {
     container.appendChild(toolbar);
 
     if (!state.userId) {
-      toolbar.appendChild(textEl("p", "Questa è una scheda di esempio, con progressi solo su questo browser. Accedi dalla Classifica per creare la tua scheda privata.", "view-description"));
+      toolbar.appendChild(textEl("p", "Questa è una scheda di esempio in modalità locale, con progressi solo su questo browser. Configura l'accesso per usare una scheda privata.", "view-description"));
       if (state.plan) {
         const overview = document.createElement("div");
         renderPlan(overview, state.plan);

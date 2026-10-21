@@ -6,6 +6,7 @@ window.workoutSocial = (() => {
   const state = {
     configured: false,
     ready: false,
+    accessReady: false,
     busy: false,
     user: null,
     member: null,
@@ -56,6 +57,9 @@ window.workoutSocial = (() => {
       state.member = null;
       state.rows = [];
       state.updatedAt = null;
+      state.accessReady = false;
+      state.error = "";
+      state.user = nextUser;
       window.workoutLibrary?.identityChanged(nextUser?.id || null);
     }
     state.user = nextUser;
@@ -153,14 +157,20 @@ window.workoutSocial = (() => {
       const data = check(await client.auth.getSession());
       if (revision !== identityRevision && state.user?.id !== data.session?.user.id) return;
       setIdentity(data.session);
+      const userRevision = identityRevision;
       await loadMembership();
+      if (userRevision !== identityRevision) return;
       await window.workoutLibrary?.load();
+      if (userRevision !== identityRevision) return;
+      state.accessReady = true;
+      state.ready = true;
+      notify();
       if (state.member) {
         if (navigator.onLine) await sync();
         else state.notice = "Sei offline. Le presenze verranno inviate alla riconnessione.";
       }
     } catch (error) {
-      fail(error, "Classifica non disponibile.");
+      fail(error, "Verifica dell'accesso non riuscita.");
     } finally {
       finishBusy();
     }
@@ -177,13 +187,14 @@ window.workoutSocial = (() => {
         return;
       }
       try {
-        const callbackError = new URLSearchParams(location.hash.slice(1));
+        const callbackParams = new URLSearchParams(location.hash.slice(1));
         const queryError = new URLSearchParams(location.search);
-        const callbackFailure = callbackError.get("error") || queryError.get("error");
-        const description = callbackError.get("error_description") || queryError.get("error_description");
+        const callbackFailure = callbackParams.get("error") || queryError.get("error");
+        const description = callbackParams.get("error_description") || queryError.get("error_description");
+        let callbackError = null;
         if (callbackFailure || description) {
           history.replaceState(null, "", location.pathname);
-          throw new Error(`Link di accesso non valido o scaduto: ${description || callbackFailure}`);
+          callbackError = new Error(`Link di accesso non valido o scaduto: ${description || callbackFailure}`);
         }
         const { createClient } = await loadSupabaseClient();
         client = createClient(config.url, config.publishableKey, {
@@ -195,6 +206,7 @@ window.workoutSocial = (() => {
           window.setTimeout(() => { void refresh(); }, 0);
         });
         await refresh();
+        if (callbackError) fail(callbackError, "Accesso non riuscito.");
       } catch (error) {
         fail(error, "Accesso social non disponibile.");
       } finally {

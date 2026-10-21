@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { JSDOM } from "jsdom";
 
 const sources = {};
-for (const file of ["state", "attendance", "social", "social-config", "ui", "tab-workout", "tab-leaderboard", "workout-library", "plan-editor", "plan-validation", "tab-plan", "app"]) {
+for (const file of ["state", "attendance", "social", "social-config", "ui", "tab-workout", "tab-leaderboard", "workout-library", "plan-editor", "plan-validation", "tab-plan", "auth-entry", "app"]) {
   sources[file] = await readFile(new URL(`../assets/${file}.js`, import.meta.url), "utf8");
 }
 const plan = {
@@ -101,7 +101,7 @@ test("unconfigured social features do not interfere with workout completion", as
   cleanup();
   w.renderLeaderboard(container);
   assert.match(container.textContent, /non configurata/);
-  assert.equal(container.querySelector("form").hidden, true);
+  assert.equal(container.querySelector('input[type="email"]'), null);
 });
 
 test("strict completion creates one durable user-bound receipt; undo, reload, render and reset behave correctly", async (t) => {
@@ -249,7 +249,8 @@ test("invalid auth callbacks and corrupt local storage show explicit errors", as
   assert.match(w.workoutSocial.snapshot().error, /non salvata/);
   w.renderLeaderboard(container);
   assert.ok(errors.length > 0);
-  assert.match(container.textContent, /non salvata/);
+  assert.ok(container.querySelector(".social-status").classList.contains("error"));
+  assert.ok(container.querySelector(".social-status").textContent);
 });
 
 test("actual workout buttons capture optional skips and AMRAP completion without manual check-in", async (t) => {
@@ -281,7 +282,7 @@ test("boot works without social config and navigation opens leaderboard", async 
   w.document.body.insertAdjacentHTML("beforeend",
     '<div id="loading"></div><nav class="app-nav"><button data-view="workout"></button><button data-view="leaderboard"></button></nav>');
   w.loadPlan = async () => structuredClone(plan);
-  for (const file of ["plan-validation", "workout-library", "tab-plan", "plan-editor"]) w.eval(sources[file]);
+  for (const file of ["plan-validation", "workout-library", "tab-plan", "plan-editor", "auth-entry"]) w.eval(sources[file]);
   w.eval(sources.app);
   await tick();
   assert.match(container.textContent, /Riscaldamento/);
