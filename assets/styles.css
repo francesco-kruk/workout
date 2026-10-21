@@ -256,6 +256,11 @@ main {
   color: var(--accent);
 }
 
+.overview-card + .exercise-list,
+.overview-card + .day-amrap {
+  margin-top: 12px;
+}
+
 .status-row {
   display: flex;
   align-items: center;
