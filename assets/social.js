@@ -217,28 +217,43 @@ window.workoutSocial = (() => {
     return initPromise;
   }
 
-  async function signIn(email) {
+  async function authenticate(email, password, creatingAccount) {
+    if (state.busy) return;
     state.error = "";
     state.notice = "";
     state.busy = true;
     notify();
+    let session = null;
     try {
       if (!client) throw new Error("Connessione social non disponibile. Ricarica la pagina.");
-      const config = window.WORKOUT_SOCIAL_CONFIG || {};
-      const redirect = new URL(config.redirectUrl || new URL(location.pathname, location.origin).href);
-      if (!["https:", "http:"].includes(redirect.protocol)) {
-        throw new Error("L'indirizzo di ritorno deve usare HTTPS o HTTP.");
+      if (!email || !password) throw new Error("Inserisci email e password.");
+      if (creatingAccount && password.length < 8) {
+        throw new Error("Scegli una password di almeno 8 caratteri.");
       }
-      check(await client.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: redirect.href, shouldCreateUser: false },
-      }));
-      state.notice = "Controlla la tua email e apri il link di accesso. Usa un indirizzo invitato.";
+      const data = check(await (creatingAccount
+        ? client.auth.signUp({ email, password })
+        : client.auth.signInWithPassword({ email, password })));
+      if (!data.session) {
+        throw new Error(creatingAccount
+          ? "Nessuna sessione ricevuta. Contatta il proprietario: deve verificare l'account e disattivare la conferma email in Supabase."
+          : "Nessuna sessione ricevuta. Riprova ad accedere.");
+      }
+      session = data.session;
+      setIdentity(session);
     } catch (error) {
-      fail(error, "Invio del link non riuscito.");
+      fail(error, creatingAccount ? "Registrazione non riuscita." : "Accesso non riuscito.");
     } finally {
       finishBusy();
     }
+    if (session) await refresh();
+  }
+
+  function signIn(email, password) {
+    return authenticate(email, password, false);
+  }
+
+  function signUp(email, password) {
+    return authenticate(email, password, true);
   }
 
   async function signOut() {
@@ -352,6 +367,6 @@ window.workoutSocial = (() => {
     return rows;
   }
 
-  return { init, snapshot, refresh, signIn, signOut, saveName, recordCompletion, completionMessage, reportError: fail,
+  return { init, snapshot, refresh, signIn, signUp, signOut, saveName, recordCompletion, completionMessage, reportError: fail,
     fetchPersonalPlan, savePersonalPlan, fetchWorkoutHistory };
 })();
