@@ -47,10 +47,24 @@ async function mount(t, {
   w.scrollTo = () => {};
   w.console.error = () => {};
   const state = { id: signedIn ? alice : null, plans, planError, calls: [], history: [], records: new Map(),
-    approved, membershipError, beforeSession, beforeMembership, beforePlan, beforeRpc: null, authError: null };
+    approved, membershipError, beforeSession, beforeMembership, beforePlan, beforeRpc: null, authError: null,
+    credentialError: null, beforeAuth: null, authCalls: 0, signupNeedsConfirmation: false, emitAuthEvents: true };
   for (const entry of plans.values()) state.records.set(entry.id, entry);
   for (const [key, value] of Object.entries(storage)) w.localStorage.setItem(key, value);
   for (const file of scripts.filter((file) => file !== "app.js")) w.eval(source.get(file));
+  const authenticate = async (args, creatingAccount) => {
+    state.authCalls += 1;
+    state[creatingAccount ? "signup" : "login"] = args;
+    if (state.beforeAuth) await state.beforeAuth();
+    if (state.credentialError) return { data: {}, error: state.credentialError };
+    if (creatingAccount && state.signupNeedsConfirmation) {
+      return { data: { user: { id: alice }, session: null }, error: null };
+    }
+    state.id = alice;
+    const session = { user: { id: alice, email: args.email } };
+    if (state.emitAuthEvents) state.callback("SIGNED_IN", session);
+    return { data: { session }, error: null };
+  };
   const client = {
     auth: {
       getSession: async () => {
@@ -58,10 +72,8 @@ async function mount(t, {
         return { data: { session: state.id ? { user: { id: state.id } } : null }, error: state.authError };
       },
       onAuthStateChange: (callback) => { state.callback = callback; },
-      signInWithOtp: async (args) => {
-        state.login = args;
-        return { data: {}, error: state.authError };
-      },
+      signInWithPassword: (args) => authenticate(args, false),
+      signUp: (args) => authenticate(args, true),
       signOut: async () => {
         if (!state.authError) state.id = null;
         return { data: null, error: state.authError };
@@ -144,23 +156,170 @@ function input(w, label, value) {
 }
 function snapshotStorage(w) { return Object.fromEntries(Object.keys(w.localStorage).map((key) => [key, w.localStorage.getItem(key)])); }
 
-test("configured signed-out visits show only Accedi and submit an invited-email magic link", async (t) => {
+test("password sign-in opens the private app in place without storing the password", async (t) => {
   const { w, state, app } = await mount(t, { signedIn: false });
+  let release;
+  state.beforeAuth = () => new Promise((resolve) => { release = resolve; });
   assert.equal(w.document.querySelector(".app-nav").hidden, true);
   assert.equal(w.document.querySelector("#sign-out").hidden, true);
   assert.equal(app.querySelector("h2").textContent, "Accedi");
   assert.doesNotMatch(app.textContent, /Esempio pubblico|Riscaldamento|Classifica/);
-  input(w, "Email invitata", "friend@example.com");
+  const email = input(w, "Email", "friend@example.com");
+  const password = input(w, "Password", " chosen password ");
+  assert.equal(email.autocomplete, "username");
+  assert.equal(password.type, "password");
+  assert.equal(password.autocomplete, "current-password");
+  assert.equal(password.hasAttribute("minlength"), false);
+  const url = w.location.href;
   app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
   assert.equal(app.querySelector("button[type=submit]").disabled, true);
-  assert.match(app.textContent, /Invio del link/);
-  await until(() => !w.workoutSocial.snapshot().busy);
-  assert.match(app.textContent, /Controlla la tua email/);
-  assert.equal(app.querySelector('input[type="email"]').value, "friend@example.com");
+  assert.equal(email.disabled, true);
+  assert.equal(password.disabled, true);
+  assert.match(app.textContent, /Accesso in corso/);
+  release();
+  await until(() => !w.workoutSocial.snapshot().busy && w.workoutSocial.snapshot().accessReady);
+  assert.equal(w.location.href, url);
+  assert.equal(w.document.querySelector(".app-nav").hidden, false);
+  assert.match(app.textContent, /Crea scheda/);
+  assert.equal(app.querySelector('input[type="password"]'), null);
   assert.equal(state.login.email, "friend@example.com");
-  assert.equal(state.login.options.shouldCreateUser, false);
-  assert.equal(state.login.options.emailRedirectTo, "https://example.github.io/workout/");
+  assert.equal(state.login.password, " chosen password ");
+  assert.equal(state.signup, undefined);
+  assert.doesNotMatch(JSON.stringify(snapshotStorage(w)), /chosen password/);
+  assert.doesNotMatch(JSON.stringify(w.workoutSocial.snapshot()), /chosen password/);
+});
+
+test("self-registration signs in without email and keeps private data locked until owner approval", async (t) => {
+  const { w, state, app } = await mount(t, { signedIn: false, approved: false });
+  let release;
+  state.beforeAuth = () => new Promise((resolve) => { release = resolve; });
+  input(w, "Email", "new@example.com");
+  input(w, "Password", "discard this");
+  click(w, "Crea un account");
+  assert.equal(app.querySelector("h2").textContent, "Crea un account");
+  assert.match(app.textContent, /proprietario deve approvare/);
+  const password = input(w, "Password", "my new password");
+  assert.equal(password.autocomplete, "new-password");
+  assert.equal(password.minLength, 8);
+  const url = w.location.href;
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  assert.match(app.textContent, /Registrazione in corso/);
+  assert.equal(app.querySelectorAll("button:disabled").length, 2);
+  release();
+  await until(() => !w.workoutSocial.snapshot().busy && w.workoutSocial.snapshot().accessReady);
+  assert.equal(w.location.href, url);
+  assert.equal(state.signup.email, "new@example.com");
+  assert.equal(state.signup.password, "my new password");
+  assert.equal(state.login, undefined);
+  assert.match(app.textContent, /Accesso in attesa di approvazione/);
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  assert.equal(w.document.querySelector("#sign-out").hidden, false);
+  assert.equal(w.workoutLibrary.snapshot().record, null);
   assert.equal(state.calls.length, 0);
+  assert.doesNotMatch(JSON.stringify(snapshotStorage(w)), /my new password/);
+  state.approved = true;
+  click(w, "Aggiorna / riprova");
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(w.getActiveView(), "plan");
+  assert.match(app.textContent, /Crea scheda/);
+});
+
+test("switching auth modes clears the password and restores password-manager hints", async (t) => {
+  const { w, app } = await mount(t, { signedIn: false });
+  input(w, "Email", "friend@example.com");
+  const password = input(w, "Password", "never reuse this");
+  click(w, "Crea un account");
+  assert.equal(password.value, "");
+  assert.equal(password.autocomplete, "new-password");
+  password.value = "another password";
+  click(w, "Hai già un account? Accedi");
+  assert.equal(app.querySelector("h2").textContent, "Accedi");
+  assert.equal(password.value, "");
+  assert.equal(password.autocomplete, "current-password");
+  assert.equal(password.hasAttribute("minlength"), false);
+  assert.equal(app.querySelector('input[type="email"]').value, "friend@example.com");
+});
+
+test("wrong credentials show a retryable error and a successful retry restores the existing plan", async (t) => {
+  const a = record(alice, "La mia scheda esistente");
+  const { w, state, app } = await mount(t, { signedIn: false, plans: new Map([[alice, a]]) });
+  state.credentialError = new Error("Invalid login credentials");
+  input(w, "Email", "friend@example.com");
+  const password = input(w, "Password", "wrong");
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.match(app.textContent, /Accesso non riuscito.*Invalid login credentials/);
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  assert.equal(password.disabled, false);
+  assert.equal(app.querySelector("button[type=submit]").disabled, false);
+  state.credentialError = null;
+  state.emitAuthEvents = false;
+  password.value = "right";
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  await until(() => !w.workoutSocial.snapshot().busy && w.workoutSocial.snapshot().accessReady);
+  assert.equal(w.workoutLibrary.snapshot().record.id, a.id);
+  assert.equal(w.document.querySelector(".app-nav").hidden, false);
+});
+
+test("registration errors remain on the form without granting access", async (t) => {
+  const { w, state, app } = await mount(t, { signedIn: false, approved: false });
+  state.credentialError = new Error("User already registered");
+  click(w, "Crea un account");
+  input(w, "Email", "existing@example.com");
+  input(w, "Password", "my new password");
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.match(app.textContent, /Registrazione non riuscita.*User already registered/);
+  assert.equal(w.workoutSocial.snapshot().user, null);
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  assert.equal(app.querySelector("button[type=submit]").disabled, false);
+});
+
+test("email-confirmation misconfiguration is an explicit registration error, not approved access", async (t) => {
+  const { w, state, app } = await mount(t, { signedIn: false, approved: false });
+  state.signupNeedsConfirmation = true;
+  click(w, "Crea un account");
+  input(w, "Email", "friend@example.com");
+  input(w, "Password", "my new password");
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.match(app.textContent, /disattivare la conferma email/);
+  assert.equal(app.querySelector("h2").textContent, "Crea un account");
+  assert.equal(w.workoutSocial.snapshot().user, null);
+  assert.equal(w.document.querySelector(".app-nav").hidden, true);
+  assert.equal(state.calls.length, 0);
+});
+
+test("registration rejects seven-character passwords and accepts the eight-character minimum", async (t) => {
+  const { w, state, app } = await mount(t, { signedIn: false, approved: false });
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  assert.equal(state.authCalls, 0);
+  await w.workoutSocial.signIn("friend@example.com", "");
+  assert.match(app.textContent, /Inserisci email e password/);
+  await w.workoutSocial.signUp("friend@example.com", "1234567");
+  assert.match(app.textContent, /almeno 8 caratteri/);
+  assert.equal(state.authCalls, 0);
+  assert.equal(w.workoutSocial.snapshot().busy, false);
+  await w.workoutSocial.signUp("friend@example.com", "12345678");
+  assert.equal(state.authCalls, 1);
+  assert.equal(state.signup.password, "12345678");
+  assert.match(app.textContent, /Accesso in attesa di approvazione/);
+});
+
+test("pending authentication blocks duplicate requests and mode switches", async (t) => {
+  const { w, state, app } = await mount(t, { signedIn: false });
+  let release;
+  state.beforeAuth = () => new Promise((resolve) => { release = resolve; });
+  input(w, "Email", "friend@example.com");
+  input(w, "Password", "my password");
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  click(w, "Crea un account");
+  await w.workoutSocial.signUp("friend@example.com", "my password");
+  assert.equal(state.authCalls, 1);
+  assert.equal(app.querySelector("h2").textContent, "Accedi");
+  release();
+  await until(() => !w.workoutSocial.snapshot().busy && w.workoutSocial.snapshot().accessReady);
 });
 
 test("session restoration waits for identity, membership and private plan without any example flash", async (t) => {
@@ -274,18 +433,20 @@ test("failed initial plan loading is not confused with a first-login missing pla
   assert.match(app.textContent, /Crea scheda/);
 });
 
-test("expired magic links stay on Accedi and allow requesting a fresh link", async (t) => {
+test("expired legacy email links allow password sign-in instead", async (t) => {
   const { w, state, app } = await mount(t, {
     signedIn: false, hash: "#error=access_denied&error_description=Link+expired",
   });
   assert.equal(w.location.hash, "");
   assert.equal(app.querySelector("h2").textContent, "Accedi");
   assert.match(app.textContent, /Link expired/);
-  input(w, "Email invitata", "friend@example.com");
+  input(w, "Email", "friend@example.com");
+  input(w, "Password", "my password");
   app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
   await until(() => !w.workoutSocial.snapshot().busy);
   assert.equal(state.login.email, "friend@example.com");
-  assert.match(app.textContent, /Controlla la tua email/);
+  assert.equal(state.login.password, "my password");
+  assert.equal(w.document.querySelector(".app-nav").hidden, false);
 });
 
 test("sign-out from a workout immediately hides private data, stops timers and preserves scoped progress", async (t) => {

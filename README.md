@@ -44,33 +44,37 @@ is not supported: there is no service worker.
    submissions. No existing attendance is discarded or invented.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
    allowed Redirect URL to `https://francesco-kruk.github.io/workout/`, including
-   the project path and trailing slash. This is also `redirectUrl` in the public
-   frontend configuration. Magic links return there even when requested from a
-   local preview. To test the callback locally, temporarily change `redirectUrl`
-   to `http://127.0.0.1:8000/` and add that exact URL to Supabase's redirect allowlist.
-   Without an explicit `redirectUrl`, the app returns to its current origin and
-   pathname. Never use a broad wildcard for production redirects.
-4. Enable email authentication and configure production email delivery/SMTP.
-   Supabase's default email service can have recipient and delivery limits;
-   check the current [email authentication guide](https://supabase.com/docs/guides/auth/auth-email)
-   and [SMTP guide](https://supabase.com/docs/guides/auth/auth-smtp).
-   Keep public signups disabled. The app requests magic links only for existing
-   users (`shouldCreateUser: false`).
-5. Invite each friend, including yourself, through **Authentication > Users**.
-   Before their first workout, copy their Auth user UUID and approve membership
-   with an owner-run SQL statement:
+   the project path and trailing slash. These settings are retained for legacy
+   invitations/admin email actions; normal sign-in and registration do not use
+   email links or redirects, including from a phone's home-screen shortcut.
+   Never use a broad wildcard for production redirects.
+4. Enable the **Email** authentication provider and **Allow new users to sign up**.
+   **Disable Confirm email** so registration creates a session directly in the
+   same window. Set the minimum password length to **8** or greater (the form
+   requires at least 8 characters, and Supabase enforces any stronger policy).
+   See the [password authentication guide](https://supabase.com/docs/guides/auth/passwords).
+   These are hosted Supabase settings, not frontend configuration: update them
+   explicitly when migrating from the previous invitation-only setup.
+   SMTP is not required for this sign-in flow. Email addresses are not verified
+   with confirmation disabled; verify each person's identity out of band before
+   granting membership. Registration alone grants no access to private/group data.
+5. Each friend, including yourself, opens **Crea un account** and chooses an email
+   and password. They stay on the access-pending screen until approved.
+   Find their account in **Authentication > Users**, copy its Auth user UUID,
+   and approve membership with an owner-run SQL statement:
 
    ```sql
    insert into public.friend_members (user_id, display_name)
    values ('REPLACE-WITH-AUTH-USER-UUID', 'Amico');
    ```
 
-   The invitation uses the configured Site URL. An authenticated user without a
-   membership sees an approval message and cannot read or submit group data.
+   An authenticated user without a membership sees an approval message and
+   cannot read or submit group data. After approval they can press
+   **Aggiorna / riprova** without signing in again.
    Members can change only their own display names. There are no public
-   discovery, self-approval, invite-management, or multi-group screens.
+   discovery, self-approval, member-management, or multi-group screens.
 6. `assets/social-config.js` is configured for
-   `https://fqwmphxzcuelbfjdpznh.supabase.co` and the production Pages redirect.
+   `https://fqwmphxzcuelbfjdpznh.supabase.co`.
    When changing projects, update its HTTPS URL and **publishable client key**
    (or the legacy public `anon` key). These values are public by
    design; row-level security and authenticated functions enforce access.
@@ -80,7 +84,8 @@ is not supported: there is no service worker.
    are used only for development tests.
 7. Publish the static files through the existing GitHub Pages setup. The configured
    app restores an existing session automatically or opens **Accedi**. Enter an
-   invited email address and follow the magic link; no password is required.
+   email address and password, or choose **Crea un account** on the first visit.
+   Both actions stay in the current window; no email or external browser is needed.
    The app waits for identity, membership, and the private plan before opening
    the four tabs. New members without a plan land directly on **Piano** to
    create/import and publish one. **Classifica** shows standings and display-name
@@ -94,6 +99,22 @@ and pending completions remain isolated for the next sign-in by their owner.
 If access or initial plan loading fails, an explicit recovery screen allows
 retrying instead of opening an example or treating the failure as a missing plan.
 An already-loaded, approved account can keep training during an outage.
+
+### Existing email-link accounts and forgotten passwords
+
+Existing sessions, Auth user IDs, approvals, private plans, and history remain
+valid. Switching the frontend does not assign passwords to existing accounts.
+Do not register a second account or delete/recreate an existing user to add a
+password: the same Auth user ID must be preserved.
+
+For an existing account without a password, or a forgotten password, contact the
+owner. The owner can set a new user-chosen password on that **existing** user with
+Supabase's Auth Admin API (`auth.admin.updateUserById(userId, { password })`) from
+a trusted administrative environment. If an old invitation is still unconfirmed,
+the owner must also verify the person's identity and confirm that account.
+Never run admin operations or expose admin credentials in this static app.
+Afterward, sign in with the same email and the new password from the home-screen
+app. There is no in-app password-reset email flow.
 
 Use Supabase administration to remove a member or correct/delete attendance.
 Deleting a `friend_members` row cascades that member's attendance. Removing a
@@ -231,7 +252,7 @@ When disconnected, any displayed standings are labeled with their last update.
   score calculation, not physical-visit verification.
 
 Missing configuration preserves local example mode. A configured app requires
-sign-in and approved membership; unavailable email delivery or initial backend
+sign-in and approved membership; unavailable authentication or initial backend
 access is surfaced on the entry screen, with no guest bypass. Backend outages do
 not interrupt an already-loaded workout. The entry screen, header, leaderboard,
 and workout finish screen surface access, synchronization, or storage errors.
@@ -253,16 +274,19 @@ Tests also run the full editor -> private plan -> offline completion -> real
 PostgreSQL result/history/scoring flow and check account/plan-version isolation,
 immutable history, conflict handling, and history pagination.
 The test Auth schema is a minimal stand-in for Supabase's `auth.users`/`auth.uid()`;
-these checks do **not** validate hosted Auth, SMTP, PostgREST, or production redirects.
+these checks do **not** validate hosted Auth settings, password policies, or PostgREST.
 CI runs the same checks.
 
 Before declaring a production rollout complete, verify on the configured Pages
-site with two invited accounts:
+site with two approved accounts:
 
-1. Signed-out visits open **Accedi** without tabs or example data. Email links
-   return to the exact project URL; expired links show an error and allow
-   requesting another link. Reloading restores a valid session without a guest
-   plan flash. New approved members land on the create/import screen in **Piano**.
+1. Signed-out visits open **Accedi** without tabs or example data. Wrong passwords
+   show a retryable error. Registration signs in directly and shows pending
+   approval, without email confirmation or a new window. After owner approval,
+   retry opens the create/import screen in **Piano**. Sign in from a phone's
+   home-screen shortcut and verify that it stays in that window. Reloading
+   restores a valid session without a guest plan flash. Existing accounts with
+   newly set passwords retain their original plans/history.
 2. Members see one another's standings and can edit only their own names.
    Unapproved accounts see no private data. Two approved members each create a
    different plan at the same URL and cannot read each other's plans/history.
@@ -280,9 +304,11 @@ site with two invited accounts:
    workout and verify the explicit version-switch choice and conflict handling.
 
 The public project URL, publishable client key, and final GitHub Pages URL are
-configured. This frontend flow requires no additional migrations or changes to
-owner-side invitations, approval, SMTP, or credentials. Hosted email delivery
-and real-account redirects still need end-to-end verification. GitHub Pages
+configured. This frontend flow requires no additional database migrations;
+owner approval is unchanged. Enable hosted signups, disable email confirmation,
+and set passwords for existing email-only accounts before rollout. Hosted
+password authentication and home-screen behavior still need end-to-end
+verification. GitHub Pages
 publishes the repository's `main` branch at `/`; worktree changes are not live
 until published there through the normal review/deployment process.
 Do not send service-role keys or database/SMTP passwords.

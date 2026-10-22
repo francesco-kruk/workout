@@ -38,7 +38,11 @@ function setup(t, { configured = false, signedIn = true, approved = true } = {})
         data: { session: state.id ? { user: { id: state.id } } : null }, error: state.authError,
       }),
       onAuthStateChange: (callback) => { state.callback = callback; },
-      signInWithOtp: async (args) => { state.login = args; return { data: {}, error: state.authError }; },
+      signInWithPassword: async (args) => {
+        state.login = args;
+        if (!state.authError) state.id = alice;
+        return { data: { session: { user: { id: state.id } } }, error: state.authError };
+      },
       signOut: async () => {
         if (!state.authError) state.id = null;
         return { error: state.authError };
@@ -219,7 +223,7 @@ test("unapproved and signed-out workouts are not silently credited to a later ac
   assert.equal(state.calls.filter((call) => call.name === "submit_gym_day").length, 0);
 });
 
-test("leaderboard escapes display names, shows fractional scores, and sends magic link to Pages project path", async (t) => {
+test("leaderboard escapes display names, shows fractional scores, and supports password reauthentication", async (t) => {
   const { w, state, container } = setup(t, { configured: true });
   await w.workoutSocial.init();
   const cleanup = w.renderLeaderboard(container);
@@ -231,9 +235,10 @@ test("leaderboard escapes display names, shows fractional scores, and sends magi
   await w.workoutSocial.saveName("Test Friend");
   assert.equal(w.workoutSocial.snapshot().member.display_name, "Test Friend");
   await w.workoutSocial.signOut();
-  await w.workoutSocial.signIn("friend@example.com");
-  assert.equal(state.login.options.emailRedirectTo, "https://example.github.io/workout/");
-  assert.equal(state.login.options.shouldCreateUser, false);
+  await w.workoutSocial.signIn("friend@example.com", "my password");
+  assert.equal(state.login.email, "friend@example.com");
+  assert.equal(state.login.password, "my password");
+  assert.equal(w.workoutSocial.snapshot().user.id, alice);
   cleanup();
 });
 
@@ -378,7 +383,7 @@ test("backend outage cannot break boot, workout jumps, or an already-running res
   cleanup();
 });
 
-test("configured Supabase project uses the canonical production Pages magic-link redirect", async (t) => {
+test("configured Supabase project supports password sign-in without redirect configuration", async (t) => {
   const { w, state } = setup(t, { signedIn: false });
   w.eval(sources["social-config"]);
   assert.equal(w.WORKOUT_SOCIAL_CONFIG.url, "https://fqwmphxzcuelbfjdpznh.supabase.co");
@@ -386,16 +391,9 @@ test("configured Supabase project uses the canonical production Pages magic-link
   assert.equal(w.WORKOUT_SOCIAL_CONFIG.publishableKey.includes("\\"), false);
   await w.workoutSocial.init();
   assert.equal(w.workoutSocial.snapshot().configured, true);
-  await w.workoutSocial.signIn("friend@example.com");
-  assert.equal(state.login.options.emailRedirectTo, "https://francesco-kruk.github.io/workout/");
-  assert.equal(state.login.options.shouldCreateUser, false);
-});
-
-test("invalid redirect protocols produce an explicit sign-in error without requesting email", async (t) => {
-  const { w, state } = setup(t, { configured: true, signedIn: false });
-  w.WORKOUT_SOCIAL_CONFIG.redirectUrl = "javascript:alert(1)";
-  await w.workoutSocial.init();
-  await w.workoutSocial.signIn("friend@example.com");
-  assert.equal(state.login, undefined);
-  assert.match(w.workoutSocial.snapshot().error, /HTTPS o HTTP/);
+  await w.workoutSocial.signIn("friend@example.com", "my password");
+  assert.equal(w.WORKOUT_SOCIAL_CONFIG.redirectUrl, undefined);
+  assert.equal(state.login.email, "friend@example.com");
+  assert.equal(state.login.password, "my password");
+  assert.equal(w.location.href, "https://example.github.io/workout/");
 });
