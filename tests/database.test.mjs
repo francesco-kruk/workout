@@ -30,6 +30,7 @@ await db.exec(await readFile(new URL("../supabase/migrations/202610240003_perfor
 await db.exec(await readFile(new URL("../supabase/migrations/202610240004_manual_workouts.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240005_exercise_tracking.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240006_optional_warmup.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240007_set_notes.sql", import.meta.url), "utf8"));
 after(() => db.close());
 
 beforeEach(async () => {
@@ -86,6 +87,38 @@ async function submitPrivateResult(record, options = {}) {
       JSON.stringify(options.steps || { "warmup:warm": "completed", "squat:0": "completed", "squat:1": "skipped" }),
       options.rounds ?? null]);
 }
+
+test("per-set notes round-trip privately through results, history, previous and performance", async () => {
+  const saved = await savePrivatePlan();
+  const id = randomUUID();
+  const at = new Date().toISOString();
+  const steps = { "warmup:warm": "completed", "squat:0": "completed", "squat:1": "skipped" };
+  const measurements = { "squat:0": { weightKg: 12.25, reps: 8, notes: "<b>Presa stretta</b>\nUltima lenta" } };
+  const submitNotes = (values, event = id) => db.query(
+    "select public.submit_workout_result($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+    [alice, event, at, saved.id, "strength", JSON.stringify(steps), null, JSON.stringify(values), null]
+  );
+  await submitNotes(measurements);
+  await submitNotes(measurements);
+  const history = (await db.query("select public.workout_history() as history")).rows[0].history;
+  assert.equal(history.length, 1);
+  assert.deepEqual(history[0].measurements, measurements);
+  const previous = (await db.query("select public.workout_previous($1,'strength','squat') as previous", [saved.id])).rows[0].previous;
+  assert.equal(previous.sets[0].notes, measurements["squat:0"].notes);
+  const performance = (await db.query("select public.workout_performance() as performance")).rows[0].performance;
+  assert.equal(performance.results[0].sets[0].notes, measurements["squat:0"].notes);
+  assert.equal(Number(performance.results[0].max_weight), 12.25);
+  await assert.rejects(submitNotes({ "squat:0": { reps: 8, notes: "Changed" } }), /different measurements/);
+  for (const notes of [null, 3, {}, [], "a".repeat(1001)]) {
+    await assert.rejects(submitNotes({ "squat:0": { reps: 8, notes } }, randomUUID()), /Invalid actual workout measurements/);
+  }
+  await submitNotes({ "squat:0": { reps: 8, notes: "a".repeat(1000) } }, randomUUID());
+  await assert.rejects(submitNotes({ "squat:1": { reps: 8, notes: "Skipped" } }, randomUUID()), /Invalid actual workout measurements/);
+  await actAs(bob);
+  const privateHistory = (await db.query("select public.workout_history() as history")).rows[0].history;
+  assert.deepEqual(privateHistory, []);
+  assert.equal((await db.query("select * from public.completed_workouts where id=$1", [id])).rows.length, 0);
+});
 
 test("private plans are immutable, versioned, idempotent and protected against concurrent edits", async () => {
   const first = await savePrivatePlan();

@@ -24,6 +24,7 @@ const migrationNames = [
   "202610240004_manual_workouts",
   "202610240005_exercise_tracking",
   "202610240006_optional_warmup",
+  "202610240007_set_notes",
 ];
 const migrations = await Promise.all(migrationNames.map((name) =>
   readFile(new URL(`../supabase/migrations/${name}.sql`, import.meta.url), "utf8")));

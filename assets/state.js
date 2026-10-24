@@ -215,6 +215,12 @@ function formatExerciseTracking(exercise) {
 
 function parseSetResult(input = {}, exercise = null) {
   const result = {};
+  if (input.notes !== undefined) {
+    if (typeof input.notes !== "string" || input.notes.length > 1000) {
+      throw new Error("Note: inserisci un testo di massimo 1000 caratteri.");
+    }
+    if (input.notes.trim()) result.notes = input.notes;
+  }
   const { mode, usesWeight } = exercise ? getExerciseTracking(exercise) : { mode: input.mode, usesWeight: true };
   for (const key of [...(usesWeight ? ["weightKg"] : []), mode === "seconds" ? "seconds" : "reps"]) {
     const raw = input[key];
@@ -233,11 +239,12 @@ function parseSetResult(input = {}, exercise = null) {
 }
 
 function formatActualResult(result) {
-  if (!result || !["weightKg", "reps", "seconds"].some((key) => result[key] !== undefined)) return "Non registrato";
+  if (!result || !["weightKg", "reps", "seconds", "notes"].some((key) => result[key] !== undefined)) return "Non registrato";
   return [
     result.weightKg !== undefined ? `${Number(result.weightKg).toLocaleString("it-IT")} kg` : "",
     result.reps !== undefined ? `${result.reps} ripetizioni` : "",
     result.seconds !== undefined ? `${result.seconds} secondi` : "",
+    result.notes ? `Note: ${result.notes}` : "",
   ].filter(Boolean).join(" · ");
 }
 

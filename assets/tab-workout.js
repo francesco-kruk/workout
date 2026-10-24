@@ -270,7 +270,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     function persist() {
       try {
         updateSetResult(sessionId, step.key, values);
-        error.textContent = validateActualNumbers();
+        error.textContent = validateActualNumbers() || validateNotes();
       } catch (failure) {
         console.error("Salvataggio risultato locale non riuscito.", failure);
         error.textContent = `Risultato non salvato. ${failure.message}`;
@@ -299,7 +299,31 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       wrapper.appendChild(input);
       inputs.appendChild(wrapper);
     }
-    fields.append(inputs, error);
+    const notesLabel = textEl("label", "Note della serie (facoltative)");
+    const notes = document.createElement("input");
+    notes.type = "text";
+    notes.maxLength = 1000;
+    notes.value = values.notes ?? "";
+    notes.dataset.setNotes = "";
+    notes.setAttribute("aria-describedby", error.id);
+    function validateNotes() {
+      try {
+        parseSetResult({ notes: values.notes });
+        notes.setAttribute("aria-invalid", "false");
+        return "";
+      } catch (failure) {
+        notes.setAttribute("aria-invalid", "true");
+        return failure.message;
+      }
+    }
+    notes.addEventListener("input", () => {
+      values.notes = notes.value;
+      persist();
+    });
+    notesLabel.appendChild(notes);
+    fields.append(inputs, notesLabel, error);
+    const notesError = validateNotes();
+    if (notesError) error.textContent = notesError;
     if (hasRecordedWorkout(stored.runId)) {
       fields.disabled = true;
       fields.appendChild(textEl("p", "Risultato di questo allenamento già salvato, in sola lettura.", "view-description"));

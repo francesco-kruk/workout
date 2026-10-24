@@ -1659,6 +1659,110 @@ test("per-set actuals persist through navigation and correction, then snapshot a
   assert.equal(app.querySelector('[data-actual-field="reps"]').value,"");
 });
 
+test("optional set notes persist independently across correction, navigation and reload, then enter private receipts", async (t) => {
+  const original = record(alice, "Note");
+  const plans = new Map([[alice, original]]);
+  const first = await mount(t, { plans });
+  navigate(first.w, "workout");
+  click(first.w, "Riscaldamento completato");
+  const note = input(first.w, "Note della serie (facoltative)", "Presa stretta <img src=x onerror=alert(1)>");
+  assert.equal(note.required, false);
+  assert.equal(note.maxLength, 1000);
+  assert.equal(first.app.querySelector("[data-complete-set]").disabled, true);
+  input(first.w, "Peso (kg)", "20");
+  input(first.w, "Ripetizioni", "8");
+  navigate(first.w, "profile");
+  navigate(first.w, "workout");
+  assert.equal(first.app.querySelector("[data-set-notes]").value, note.value);
+  const { w, app } = await mount(t, { plans, storage: snapshotStorage(first.w) });
+  Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
+  assert.equal(app.querySelector("[data-set-notes]").value, note.value);
+  click(w, "Serie completata");
+  click(w, "Salta recupero");
+  assert.equal(app.querySelector("[data-set-notes]").value, "");
+  click(w, "Indietro");
+  input(w, "Note della serie (facoltative)", "Presa stretta, ultima ripetizione lenta");
+  click(w, "Serie completata");
+  click(w, "Salta recupero");
+  input(w, "Note della serie (facoltative)", "   ");
+  input(w, "Peso (kg)", "22");
+  input(w, "Ripetizioni", "6");
+  click(w, "Serie completata");
+  click(w, "Salta recupero");
+  click(w, "Salta");
+  const receipt = w.pendingAttendance(alice)[0];
+  assert.deepEqual(JSON.parse(JSON.stringify(receipt.workout.measurements)), {
+    "squat:0": { weightKg: 20, reps: 8, notes: "Presa stretta, ultima ripetizione lenta" },
+    "squat:1": { weightKg: 22, reps: 6 },
+  });
+  navigate(w, "profile");
+  navigate(w, "workout");
+  assert.equal(w.pendingAttendance(alice)[0].workout.measurements["squat:0"].notes, "Presa stretta, ultima ripetizione lenta");
+  w.undoLastStep("strength");
+  w.undoLastStep("strength");
+  navigate(w, "plan");
+  navigate(w, "workout");
+  assert.equal(app.querySelector("[data-set-notes]").disabled, false);
+  assert.equal(app.querySelector("[data-set-notes]").closest("fieldset").disabled, true);
+});
+
+test("notes appear safely in previous results, private history and performance details", async (t) => {
+  const { w, state, app } = await mount(t, { plans: new Map([[alice, record(alice, "Note private")]]) });
+  const notes = "<img src=x onerror=alert(1)> Presa stretta";
+  state.previous = { completed_at: "2026-10-01Z", sets: [{ set: 1, weightKg: 20, reps: 8, notes }] };
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  await until(() => app.querySelector(".previous-result").textContent.includes(notes));
+  assert.equal(app.querySelector("[data-set-notes]").value, "");
+  assert.equal(app.querySelector(".previous-result img"), null);
+  state.history = [{
+    id: "notes-history", completed_at: "2026-10-01Z", revision: 1, plan_title: "Note private",
+    warmup: definition.warmup, session: definition.sessions[0],
+    steps: { "warmup:warm": "completed", "squat:0": "completed" },
+    measurements: { "squat:0": { weightKg: 20, reps: 8, notes } },
+  }];
+  const seriesKey = "a".repeat(32);
+  state.performance = {
+    series: [{ series_key: seriesKey, name: "Squat", context: "Forza", kind: "standard", workouts: 1, best_weight: 20 }],
+    results: [{ id: "notes-history", series_key: seriesKey, completed_at: "2026-10-01Z", sets: [{ set: 1, weightKg: 20, reps: 8, notes }], max_weight: 20, max_reps: 8 }],
+    more: false,
+  };
+  navigate(w, "profile");
+  await until(() => app.querySelector(".workout-history").textContent.includes(notes)
+    && app.querySelector(".performance-table")?.textContent.includes(notes));
+  assert.equal(app.querySelector(".workout-history img"), null);
+  assert.equal(app.querySelector(".performance-table img"), null);
+});
+
+test("notes respect their length limit and storage errors without replacing required seconds", async (t) => {
+  const original = record(alice, "Note durata");
+  Object.assign(original.definition.sessions[0].exercises[0], { measurementMode: "seconds", usesWeight: false });
+  const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  input(w, "Note della serie (facoltative)", "a".repeat(1000));
+  assert.equal(app.querySelector("[data-complete-set]").disabled, true);
+  input(w, "Durata (secondi)", "30");
+  assert.equal(app.querySelector("[data-complete-set]").disabled, false);
+  input(w, "Note della serie (facoltative)", "a".repeat(1001));
+  assert.equal(app.querySelector("[data-complete-set]").disabled, true);
+  assert.match(app.querySelector("[data-measurement-error]").textContent, /massimo 1000/);
+  input(w, "Note della serie (facoltative)", "");
+  assert.equal(app.querySelector("[data-complete-set]").disabled, false);
+  const originalSetItem = w.Storage.prototype.setItem;
+  w.Storage.prototype.setItem = function (key, value) {
+    if (key.startsWith("workout.progress")) throw new Error("Spazio esaurito");
+    return originalSetItem.call(this, key, value);
+  };
+  input(w, "Note della serie (facoltative)", "Non salvata");
+  assert.equal(app.querySelector("[data-complete-set]").disabled, true);
+  assert.match(app.querySelector("[data-measurement-error]").textContent, /Risultato non salvato/);
+  w.Storage.prototype.setItem = originalSetItem;
+  input(w, "Note della serie (facoltative)", "Recuperata");
+  assert.equal(app.querySelector("[data-complete-set]").disabled, false);
+  assert.equal(w.getProgress("strength").results["squat:0"].notes, "Recuperata");
+});
+
 test("invalid and blank actual inputs disable completion while explicit zero is valid", async (t) => {
   const {w,app} = await mount(t,{plans:new Map([[alice,record(alice,"Piano")]])});
   Object.defineProperty(w.navigator,"onLine",{value:false,configurable:true});

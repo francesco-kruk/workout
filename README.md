@@ -76,6 +76,7 @@ is not supported: there is no service worker.
    supabase/migrations/202610240004_manual_workouts.sql
    supabase/migrations/202610240005_exercise_tracking.sql
    supabase/migrations/202610240006_optional_warmup.sql
+   supabase/migrations/202610240007_set_notes.sql
    ```
 
    Each migration runs once; apply only migrations not already deployed. Together
@@ -87,6 +88,7 @@ is not supported: there is no service worker.
    the following migration retires its public workflow. No existing attendance
    is discarded or invented. Deploy the optional-warm-up migration before publishing
    a frontend that saves plans without warm-up.
+   Apply the set-notes migration before publishing a frontend that submits notes.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
    allowed Redirect URL to `https://francesco-kruk.github.io/workout/`, including
    the project path and trailing slash. These settings are retained for legacy
@@ -171,6 +173,12 @@ values. Reps, seconds, set counts, and AMRAP counts must be whole numbers within
 their existing limits; weight allows up to two decimal places. Valid zero values
 are accepted where appropriate. Exercise targets remain free text, so ranges
 such as “8–12 ripetizioni” still work.
+
+Each standard exercise set also has **Note della serie (facoltative)**, a text
+field limited to 1000 characters. Notes are saved locally with that set and included
+in its private completed-workout history, performance details, and "last time"
+reference after synchronization. Blank notes are omitted. They never replace
+required reps/time or weight, and are not shown in the shared leaderboard.
 
 **Profilo** shows the current display name and effective email. Expand **Nome
 visualizzato**, **Modifica email**, or **Modifica password** to edit one setting
