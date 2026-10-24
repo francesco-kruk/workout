@@ -5,6 +5,18 @@ function textEl(tag, text, className) {
   return element;
 }
 
+function validateNumberInput(input, label) {
+  input.setCustomValidity("");
+  let message = "";
+  if (!input.validity.valid) {
+    const precision = input.step === "1" ? "un numero intero" : "un numero con al massimo due decimali";
+    message = `${label}: inserisci ${precision} da ${input.min} a ${input.max}.`;
+    input.setCustomValidity(message);
+  }
+  input.setAttribute("aria-invalid", String(Boolean(message)));
+  return message;
+}
+
 function createProgress(summary, label = "attività obbligatorie") {
   const wrap = document.createElement("div");
   wrap.className = "progress-wrap";
@@ -49,4 +61,8 @@ function formatTime(totalSeconds) {
   const minutes = Math.floor(safeSeconds / 60);
   const seconds = safeSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatRest(seconds) {
+  return seconds === 0 ? "0 secondi (nessun recupero)" : `${seconds} secondi`;
 }

@@ -215,6 +215,12 @@ function formatExerciseTracking(exercise) {
 
 function parseSetResult(input = {}, exercise = null) {
   const result = {};
+  if (input.notes !== undefined) {
+    if (typeof input.notes !== "string" || input.notes.length > 1000) {
+      throw new Error("Note: inserisci un testo di massimo 1000 caratteri.");
+    }
+    if (input.notes.trim()) result.notes = input.notes;
+  }
   const { mode, usesWeight } = exercise ? getExerciseTracking(exercise) : { mode: input.mode, usesWeight: true };
   for (const key of [...(usesWeight ? ["weightKg"] : []), mode === "seconds" ? "seconds" : "reps"]) {
     const raw = input[key];
@@ -233,16 +239,27 @@ function parseSetResult(input = {}, exercise = null) {
 }
 
 function formatActualResult(result) {
-  if (!result || !["weightKg", "reps", "seconds"].some((key) => result[key] !== undefined)) return "Non registrato";
+  if (!result || !["weightKg", "reps", "seconds", "notes"].some((key) => result[key] !== undefined)) return "Non registrato";
   return [
     result.weightKg !== undefined ? `${Number(result.weightKg).toLocaleString("it-IT")} kg` : "",
     result.reps !== undefined ? `${result.reps} ripetizioni` : "",
     result.seconds !== undefined ? `${result.seconds} secondi` : "",
+    result.notes ? `Note: ${result.notes}` : "",
   ].filter(Boolean).join(" · ");
 }
 
 function formatAmrapResult(rounds, extraReps) {
   return `${rounds} giri${extraReps === "" || extraReps == null ? "" : ` + ${extraReps} ripetizioni extra`}`;
+}
+
+function parseAmrapCount(raw, label, optional = false) {
+  if (optional && (raw === "" || raw === undefined || raw === null)) return null;
+  const value = Number(raw);
+  if (!["number", "string"].includes(typeof raw) || (typeof raw === "string" && !raw.trim())
+    || !Number.isInteger(value) || value < 0 || value > 100000) {
+    throw new Error(`${label}: inserisci un numero intero da 0 a 100000.`);
+  }
+  return value;
 }
 
 function updateRestTimer(sessionId, timer) {
@@ -347,12 +364,6 @@ function getWarmupKey(item) {
 function parseDurationSeconds(duration) {
   const match = String(duration).match(/(\d+)/);
   return match ? Number(match[1]) * 60 : 0;
-}
-
-function parseRestDurationSeconds(duration) {
-  const values = String(duration).match(/\d+(?:[.,]\d+)?/g)?.map(Number) || [];
-  if (values.length === 0) return 0;
-  return Math.round(values.length > 1 ? (values[0] + values[1]) / 2 : values[0]);
 }
 
 function getStoredSession(store, sessionId) {

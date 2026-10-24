@@ -79,7 +79,13 @@ window.workoutLibrary = (() => {
       if (!state.record) {
         try {
           const cached = localStorage.getItem(cacheKey(userId));
-          if (cached) activate(validateRecord(JSON.parse(cached), userId));
+          if (cached) {
+            const record = JSON.parse(cached);
+            const changed = normalizeStoredWorkoutRest(record?.definition);
+            validateRecord(record, userId);
+            if (changed) localStorage.setItem(cacheKey(userId), JSON.stringify(record));
+            activate(record);
+          }
         } catch (error) {
           report(error, "Cache della scheda non leggibile; tentativo di recupero dal server.");
         }
@@ -122,12 +128,17 @@ window.workoutLibrary = (() => {
       || !(draft.baseVersionId === null || typeof draft.baseVersionId === "string")) {
       throw new Error("Bozza locale non valida. Esportala prima di rimuoverla.");
     }
+    if (draft.restFormat !== "seconds") {
+      normalizeStoredWorkoutRest(draft.definition);
+      draft.restFormat = "seconds";
+      localStorage.setItem(draftKey(state.userId), JSON.stringify(draft));
+    }
     return draft;
   }
 
   function writeDraft(definition, baseVersionId = state.record?.id || null) {
     if (!state.userId) throw new Error("Accedi prima di modificare una scheda.");
-    const draft = { versionId: crypto.randomUUID(), baseVersionId, definition };
+    const draft = { versionId: crypto.randomUUID(), baseVersionId, definition, restFormat: "seconds" };
     localStorage.setItem(draftKey(state.userId), JSON.stringify(draft));
     return draft;
   }
@@ -201,17 +212,13 @@ window.workoutLibrary = (() => {
       const value = parseSetResult(summary.progress.results[step.key], step.exercise);
       if (Object.keys(value).length) measurements[step.key] = value;
     }
-    const extra = summary.progress.amrap.extraReps;
-    const extraReps = extra === "" || extra === undefined ? null : Number(extra);
-    if (session.type === "amrap" && extraReps !== null
-      && (!Number.isInteger(extraReps) || extraReps < 0 || extraReps > 100000)) {
-      throw new Error("Ripetizioni extra: inserisci un intero da 0 a 100000.");
-    }
+    const extraReps = session.type === "amrap"
+      ? parseAmrapCount(summary.progress.amrap.extraReps, "Ripetizioni extra", true) : null;
     return {
       planVersionId: record.id,
       sessionId: session.id,
       steps: Object.fromEntries(summary.steps.map((step) => [step.key, summary.progress.steps[step.key]])),
-      amrapRounds: session.type === "amrap" ? summary.progress.amrap.rounds : null,
+      amrapRounds: session.type === "amrap" ? parseAmrapCount(summary.progress.amrap.rounds, "Giri completi") : null,
       measurements,
       amrapExtraReps: session.type === "amrap" ? extraReps : null,
     };

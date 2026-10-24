@@ -5,7 +5,20 @@ import { PGlite } from "@electric-sql/pglite";
 import { randomUUID } from "node:crypto";
 import { JSDOM } from "jsdom";
 import { createRequire } from "node:module";
-const { validateWorkoutPlan } = createRequire(import.meta.url)("../assets/plan-validation.js");
+const { validateWorkoutPlan, normalizeStoredWorkoutRest } = createRequire(import.meta.url)("../assets/plan-validation.js");
+
+test("legacy blank rest preserves no-recovery behavior without inventing missing values", () => {
+  const ids = ["core-barchetta", "core-pallina-bastone", "core-raises-barchetta",
+    "core-crunch-farfalla", "core-cardio"];
+  const stored = { sessions: [{ type: "standard", exercises: [
+    ...ids.map((id) => ({ id, rest: "" })),
+    { id: "other", rest: "" }, { id: "custom", rest: " \t\n" }, { id: "core-barchetta" },
+    { id: "core-cardio", rest: "30-60 secondi" },
+  ] }] };
+  assert.equal(normalizeStoredWorkoutRest(stored), true);
+  assert.deepEqual(stored.sessions[0].exercises.map((e) => e.rest), [0, 0, 0, 0, 0, 0, 0, undefined, 60]);
+  assert.equal(normalizeStoredWorkoutRest(stored), false);
+});
 
 const db = new PGlite();
 const alice = "11111111-1111-4111-8111-111111111111";
@@ -29,6 +42,9 @@ await db.exec(await readFile(new URL("../supabase/migrations/202610240002_consis
 await db.exec(await readFile(new URL("../supabase/migrations/202610240003_performance_tracking.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240004_manual_workouts.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240005_exercise_tracking.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240006_optional_warmup.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240007_set_notes.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240008_required_rest.sql", import.meta.url), "utf8"));
 after(() => db.close());
 
 beforeEach(async () => {
@@ -64,7 +80,7 @@ const privatePlan = {
   warmup: [{ id: "warm", name: "Warmup", target: "5 minuti", instructions: "" }],
   sessions: [
     { id: "strength", label: "Forza", type: "standard", exercises: [
-      { id: "squat", name: "Squat", target: "5 ripetizioni", sets: 1, optionalSets: 1, rest: "60 secondi" },
+      { id: "squat", name: "Squat", target: "5 ripetizioni", sets: 1, optionalSets: 1, rest: 60 },
     ] },
     { id: "circuit", label: "Circuito", type: "amrap", duration: "20 minuti", exercises: [
       { id: "push", name: "Piegamenti", target: "10 ripetizioni" },
@@ -85,6 +101,38 @@ async function submitPrivateResult(record, options = {}) {
       JSON.stringify(options.steps || { "warmup:warm": "completed", "squat:0": "completed", "squat:1": "skipped" }),
       options.rounds ?? null]);
 }
+
+test("per-set notes round-trip privately through results, history, previous and performance", async () => {
+  const saved = await savePrivatePlan();
+  const id = randomUUID();
+  const at = new Date().toISOString();
+  const steps = { "warmup:warm": "completed", "squat:0": "completed", "squat:1": "skipped" };
+  const measurements = { "squat:0": { weightKg: 12.25, reps: 8, notes: "<b>Presa stretta</b>\nUltima lenta" } };
+  const submitNotes = (values, event = id) => db.query(
+    "select public.submit_workout_result($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+    [alice, event, at, saved.id, "strength", JSON.stringify(steps), null, JSON.stringify(values), null]
+  );
+  await submitNotes(measurements);
+  await submitNotes(measurements);
+  const history = (await db.query("select public.workout_history() as history")).rows[0].history;
+  assert.equal(history.length, 1);
+  assert.deepEqual(history[0].measurements, measurements);
+  const previous = (await db.query("select public.workout_previous($1,'strength','squat') as previous", [saved.id])).rows[0].previous;
+  assert.equal(previous.sets[0].notes, measurements["squat:0"].notes);
+  const performance = (await db.query("select public.workout_performance() as performance")).rows[0].performance;
+  assert.equal(performance.results[0].sets[0].notes, measurements["squat:0"].notes);
+  assert.equal(Number(performance.results[0].max_weight), 12.25);
+  await assert.rejects(submitNotes({ "squat:0": { reps: 8, notes: "Changed" } }), /different measurements/);
+  for (const notes of [null, 3, {}, [], "a".repeat(1001)]) {
+    await assert.rejects(submitNotes({ "squat:0": { reps: 8, notes } }, randomUUID()), /Invalid actual workout measurements/);
+  }
+  await submitNotes({ "squat:0": { reps: 8, notes: "a".repeat(1000) } }, randomUUID());
+  await assert.rejects(submitNotes({ "squat:1": { reps: 8, notes: "Skipped" } }, randomUUID()), /Invalid actual workout measurements/);
+  await actAs(bob);
+  const privateHistory = (await db.query("select public.workout_history() as history")).rows[0].history;
+  assert.deepEqual(privateHistory, []);
+  assert.equal((await db.query("select * from public.completed_workouts where id=$1", [id])).rows.length, 0);
+});
 
 test("private plans are immutable, versioned, idempotent and protected against concurrent edits", async () => {
   const first = await savePrivatePlan();
@@ -113,10 +161,12 @@ test("frontend and database validation agree on malformed imported plans and acc
   for (const mutation of [
     (p) => { p.version = 3; },
     (p) => { p.title = ""; },
-    (p) => { p.warmup = []; },
+    (p) => { p.warmup = null; },
+    (p) => { delete p.warmup; },
     (p) => { p.sessions = {}; },
     (p) => { p.sessions[0].exercises = []; },
     (p) => { p.sessions[0].exercises[0].sets = 31; },
+    (p) => { p.sessions[0].exercises[0].sets = 1.5; },
     (p) => { p.sessions[0].exercises[0].optionalSets = -1; },
     (p) => { p.sessions[0].exercises[0].measurementMode = "minutes"; },
     (p) => { p.sessions[0].exercises[0].measurementMode = null; },
@@ -153,6 +203,47 @@ test("tracking settings accept both modes and weight options without invalidatin
   assert.deepEqual(validateWorkoutPlan(privatePlan), []);
   saved = await savePrivatePlan(privatePlan, saved.id);
   assert.deepEqual(saved.definition, privatePlan);
+});
+
+test("rest requires integer JSON seconds with the same frontend and database bounds", async () => {
+  for (const rest of [undefined, null, "", " ", "60", "60 secondi", "60-90", "60-90 secondi", -1, 1.5, 3601, true, {}, []]) {
+    const invalid = structuredClone(privatePlan);
+    invalid.sessions[0].exercises[0].rest = rest;
+    assert.match(validateWorkoutPlan(invalid).join("\n"), /recupero obbligatorio/);
+    await assert.rejects(savePrivatePlan(invalid), /Invalid workout plan/);
+  }
+  let base = null;
+  for (const rest of [0, 1, 90, 3600]) {
+    const valid = structuredClone(privatePlan);
+    valid.sessions[0].exercises[0].rest = rest;
+    valid.sessions[0].exercises[0].instructions = "";
+    valid.sessions[0].subtitle = "";
+    assert.deepEqual(validateWorkoutPlan(valid), []);
+    const saved = await savePrivatePlan(valid, base);
+    assert.equal(saved.definition.sessions[0].exercises[0].rest, rest);
+    assert.equal(saved.definition.sessions[1].exercises[0].rest, undefined);
+    base = saved.id;
+  }
+});
+
+test("empty warm-up plans save and submit standard and AMRAP results without phantom required steps", async () => {
+  const definition = structuredClone(privatePlan);
+  definition.warmup = [];
+  assert.deepEqual(validateWorkoutPlan(definition), []);
+  const saved = await savePrivatePlan(definition);
+  assert.deepEqual(saved.definition.warmup, []);
+  await submitPrivateResult(saved, {
+    steps: { "squat:0": "completed", "squat:1": "skipped" },
+  });
+  await submitPrivateResult(saved, {
+    sessionId: "circuit", steps: { "circuit:amrap": "completed" }, rounds: 5,
+  });
+  const rows = (await db.query("select session_id, steps from public.completed_workouts order by session_id")).rows;
+  assert.equal(rows.length, 2);
+  for (const row of rows) assert.ok(Object.keys(row.steps).every((key) => !key.startsWith("warmup:")));
+  await assert.rejects(submitPrivateResult(saved, {
+    steps: { "warmup:warm": "completed", "squat:0": "completed", "squat:1": "skipped" },
+  }));
 });
 
 test("the repository example explicitly configures every standard exercise", async () => {
@@ -420,7 +511,7 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
   });
   t.after(() => dom.window.close());
   const w = dom.window;
-  for (const file of ["state", "attendance", "social", "ui", "tab-workout", "tab-leaderboard"]) {
+  for (const file of ["state", "attendance", "social", "ui", "timer-audio", "tab-workout", "tab-leaderboard"]) {
     w.eval(await readFile(new URL(`../assets/${file}.js`, import.meta.url), "utf8"));
   }
   const client = {
@@ -469,7 +560,7 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
     warmup: [{ id: "warm", name: "Riscaldamento", target: "1 min" }],
     sessions: [{
       id: "gym", label: "Giorno 1", type: "standard",
-      exercises: [{ id: "squat", name: "Squat", target: "5", sets: 1, optionalSets: 1 }],
+      exercises: [{ id: "squat", name: "Squat", target: "5", sets: 1, optionalSets: 1, rest: 0 }],
     }],
   };
   const container = w.document.querySelector("main");

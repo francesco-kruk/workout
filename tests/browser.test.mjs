@@ -4,14 +4,14 @@ import { readFile } from "node:fs/promises";
 import { JSDOM } from "jsdom";
 
 const sources = {};
-for (const file of ["state", "attendance", "social", "social-config", "ui", "tab-workout", "tab-leaderboard", "tab-progress", "tab-profile", "workout-library", "plan-editor", "plan-validation", "tab-plan", "tab-day", "auth-entry", "app"]) {
+for (const file of ["state", "attendance", "social", "social-config", "ui", "timer-audio", "tab-workout", "tab-leaderboard", "tab-progress", "tab-profile", "workout-library", "plan-editor", "plan-validation", "tab-plan", "tab-day", "auth-entry", "app"]) {
   sources[file] = await readFile(new URL(`../assets/${file}.js`, import.meta.url), "utf8");
 }
 const plan = {
   warmup: [{ id: "warm", name: "Warmup", target: "1 min" }],
   sessions: [
     { id: "standard", label: "Giorno 1", type: "standard", exercises: [
-      { id: "squat", name: "Squat", target: "5", sets: 1, optionalSets: 1 },
+      { id: "squat", name: "Squat", target: "5", sets: 1, optionalSets: 1, rest: 0 },
     ] },
     { id: "amrap", label: "Giorno 2", type: "amrap", duration: "1 min", exercises: [] },
   ],
@@ -30,7 +30,7 @@ function setup(t, { configured = false, signedIn = true, approved = true } = {})
   w.scrollTo = () => {};
   const errors = [];
   w.console.error = (...args) => errors.push(args);
-  for (const file of ["state", "attendance", "social", "ui", "tab-workout", "tab-leaderboard"]) w.eval(sources[file]);
+  for (const file of ["state", "attendance", "social", "ui", "timer-audio", "tab-workout", "tab-leaderboard"]) w.eval(sources[file]);
   const state = { id: signedIn ? alice : null, approved, rpcError: null, authError: null, calls: [], callback: null };
   const fakeClient = {
     auth: {
@@ -110,6 +110,24 @@ test("unconfigured social features do not interfere with workout completion", as
   w.renderLeaderboard(container);
   assert.match(container.textContent, /non configurata/);
   assert.equal(container.querySelector('input[type="email"]'), null);
+});
+
+test("Profile sound preference is available in local mode without an account", async (t) => {
+  const { w, container } = setup(t, { signedIn: false });
+  w.structuredClone = structuredClone;
+  for (const file of ["plan-validation", "workout-library", "tab-progress", "tab-profile"]) w.eval(sources[file]);
+  await w.workoutSocial.init();
+  w.workoutLibrary.start(plan);
+  const cleanup = w.renderProfile(container);
+  const mute = container.querySelector("[data-rest-sound-muted]");
+  assert.equal(mute.disabled, false);
+  assert.equal(mute.checked, false);
+  mute.click();
+  assert.equal(w.workoutAudio.muted(), true);
+  cleanup();
+  const cleanupReloaded = w.renderProfile(container);
+  assert.equal(container.querySelector("[data-rest-sound-muted]").checked, true);
+  cleanupReloaded();
 });
 
 test("strict completion creates one durable user-bound receipt; undo, reload, render and reset behave correctly", async (t) => {

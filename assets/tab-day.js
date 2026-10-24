@@ -26,7 +26,7 @@ function renderDay(container, plan, sessionId = getCurrentSessionId(plan)) {
   );
   container.appendChild(hint);
 
-  container.appendChild(renderDayWarmup(plan.warmup, summary.progress));
+  if (plan.warmup.length) container.appendChild(renderDayWarmup(plan.warmup, summary.progress));
   if (session.type === "amrap") {
     container.appendChild(renderDayAmrap(session, summary.progress));
   } else {
@@ -85,8 +85,8 @@ function renderDayExercise(exercise, progress) {
   card.appendChild(header);
   card.appendChild(textEl("p", formatExerciseTracking(exercise), "view-description"));
 
-  if (exercise.rest) {
-    card.appendChild(textEl("p", `Recupero: ${exercise.rest}`, "exercise-rest"));
+  if (exercise.rest !== undefined) {
+    card.appendChild(textEl("p", `Recupero: ${formatRest(exercise.rest)}`, "exercise-rest"));
   }
   if (exercise.instructions) {
     card.appendChild(textEl("p", exercise.instructions, "exercise-instructions"));

@@ -14,9 +14,9 @@ function validateWorkoutPlan(plan) {
     }
     ids.add(value);
   };
-  const array = (value, path, max) => {
-    if (!Array.isArray(value) || value.length < 1 || value.length > max) {
-      errors.push(`${path}: inserisci da 1 a ${max} elementi.`);
+  const array = (value, path, max, min = 1) => {
+    if (!Array.isArray(value) || value.length < min || value.length > max) {
+      errors.push(`${path}: inserisci da ${min} a ${max} elementi.`);
       return [];
     }
     return value;
@@ -29,7 +29,7 @@ function validateWorkoutPlan(plan) {
     errors.push("trackingId: identificatore dello storico non valido.");
   }
   text(plan.title, "Titolo");
-  for (const [index, item] of array(plan.warmup, "Riscaldamento", 50).entries()) {
+  for (const [index, item] of array(plan.warmup, "Riscaldamento", 50, 0).entries()) {
     const path = `Riscaldamento ${index + 1}`;
     if (!object(item)) { errors.push(`${path}: elemento non valido.`); continue; }
     id(item.id, path);
@@ -58,21 +58,18 @@ function validateWorkoutPlan(plan) {
       text(exercise.name, `${exercisePath}, nome`);
       text(exercise.target, `${exercisePath}, obiettivo`);
       if (exercise.instructions !== undefined) text(exercise.instructions, `${exercisePath}, istruzioni`, true);
-      if (exercise.rest !== undefined) text(exercise.rest, `${exercisePath}, recupero`, true);
       if (exercise.measurementMode !== undefined && !["reps", "seconds"].includes(exercise.measurementMode)) {
         errors.push(`${exercisePath}: tracciamento in ripetizioni o secondi.`);
       }
       if (exercise.usesWeight !== undefined && typeof exercise.usesWeight !== "boolean") {
         errors.push(`${exercisePath}: uso del peso deve essere vero o falso.`);
       }
-      if (session.type === "standard") {
-        if (typeof exercise.rest === "string" && exercise.rest.trim()) {
-          const rest = exercise.rest.trim().match(/^(\d{1,4})(?:-(\d{1,4}))?(?: (?:s|sec|secondi))?$/);
-          if (!rest || Number(rest[1]) > 3600 || Number(rest[2] ?? rest[1]) > 3600
-            || Number(rest[2] ?? rest[1]) < Number(rest[1])) {
-            errors.push(`${exercisePath}: recupero da 0 a 3600 secondi, es. "60" o "60-90 secondi".`);
-          }
+      if (session.type === "standard" || exercise.rest !== undefined) {
+        if (!Number.isInteger(exercise.rest) || exercise.rest < 0 || exercise.rest > 3600) {
+          errors.push(`${exercisePath}: recupero obbligatorio, numero intero da 0 a 3600 secondi (0 = nessun recupero).`);
         }
+      }
+      if (session.type === "standard") {
         if (!Number.isInteger(exercise.sets) || exercise.sets < 1 || exercise.sets > 30) {
           errors.push(`${exercisePath}: serie obbligatorie da 1 a 30.`);
         }
@@ -88,4 +85,32 @@ function validateWorkoutPlan(plan) {
   return errors;
 }
 
-if (typeof module !== "undefined") module.exports = { validateWorkoutPlan };
+function normalizeStoredWorkoutRest(plan) {
+  let changed = false;
+  for (const day of Array.isArray(plan?.sessions) ? plan.sessions : []) {
+    if (!Array.isArray(day?.exercises)) continue;
+    for (const exercise of day.exercises) {
+      if (typeof exercise?.rest !== "string") continue;
+      if (day.type === "standard" && !exercise.rest.trim()) {
+        exercise.rest = 0;
+        changed = true;
+        continue;
+      }
+      if (day.type === "amrap" && !exercise.rest.trim()) {
+        delete exercise.rest;
+        changed = true;
+        continue;
+      }
+      const match = exercise.rest.trim().match(/^(\d{1,4})(?:-(\d{1,4}))?(?: (?:s|sec|secondi))?$/);
+      if (!match) continue;
+      const lower = Number(match[1]);
+      const upper = Number(match[2] ?? match[1]);
+      if (upper > 3600 || lower > upper) continue;
+      exercise.rest = upper;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+if (typeof module !== "undefined") module.exports = { validateWorkoutPlan, normalizeStoredWorkoutRest };

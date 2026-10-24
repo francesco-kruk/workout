@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { JSDOM } from "jsdom";
 
-const files = ["state", "attendance", "ui", "social", "manual-workouts", "tab-workout"];
+const files = ["state", "attendance", "ui", "timer-audio", "social", "manual-workouts", "tab-workout"];
 const sources = await Promise.all(files.map((name) => readFile(new URL(`../assets/${name}.js`, import.meta.url), "utf8")));
 const alice = "11111111-1111-4111-8111-111111111111";
 const bob = "22222222-2222-4222-8222-222222222222";

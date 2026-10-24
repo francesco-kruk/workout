@@ -14,7 +14,7 @@ const plan = {
   version: 2, title: "Private plan",
   warmup: [{ id: "warm", name: "Warmup", target: "5 minutes" }],
   sessions: [{ id: "strength", label: "Private day", type: "standard",
-    exercises: [{ id: "squat", name: "Squat", target: "5 reps", sets: 1 }] }],
+    exercises: [{ id: "squat", name: "Squat", target: "5 reps", sets: 1, rest: 0 }] }],
 };
 await db.exec(`
   create role anon; create role authenticated; create schema auth;
