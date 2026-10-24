@@ -80,6 +80,10 @@ function renderAuthEntry(container, screen) {
   const reload = createButton("Ricarica pagina", "btn btn-secondary");
   reload.addEventListener("click", () => location.reload());
   panel.appendChild(reload);
+  const logout = createButton("Esci", "btn btn-secondary");
+  logout.id = "sign-out";
+  logout.addEventListener("click", () => { void social.signOut(); });
+  panel.appendChild(logout);
   container.replaceChildren(panel);
 
   function update() {
@@ -97,6 +101,8 @@ function renderAuthEntry(container, screen) {
     if (email) email.disabled = state.busy;
     if (password) password.disabled = state.busy;
     if (toggle) toggle.disabled = state.busy;
+    logout.hidden = !state.user;
+    logout.disabled = Boolean(state.user && state.busy);
     reload.hidden = !error;
   }
   window.addEventListener("workout-social-change", update);

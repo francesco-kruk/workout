@@ -1,7 +1,9 @@
-function renderProgress(container) {
+function renderProgress(container, { embedded = false } = {}) {
   container.replaceChildren(
-    textEl("p", "La tua costanza", "cycle-label"),
-    textEl("h2", "Progressi")
+    ...(embedded ? [textEl("h3", "Progressi", "profile-progress-heading")] : [
+      textEl("p", "La tua costanza", "cycle-label"),
+      textEl("h2", "Progressi"),
+    ])
   );
   const personal = document.createElement("section");
   personal.className = "social-panel personal-progress";
@@ -35,14 +37,16 @@ function renderProgress(container) {
       }
       const metrics = document.createElement("dl");
       metrics.className = "progress-metrics";
-      for (const [label, value] of [
+      for (const [label, value, unit] of [
         ["Giorni di allenamento", own.gym_days],
         ["Punti", formatScore(own.points)],
-        ["Sequenza attiva", `${own.current_streak} allenamenti`],
+        ["Sequenza attiva", own.current_streak, "allenamenti"],
         ["Moltiplicatore", `${formatScore(own.multiplier)}×`],
       ]) {
         const metric = document.createElement("div");
-        metric.append(textEl("dt", label), textEl("dd", String(value)));
+        const result = textEl("dd", String(value));
+        if (unit) result.appendChild(textEl("span", ` ${unit}`, "metric-unit"));
+        metric.append(textEl("dt", label), result);
         metrics.appendChild(metric);
       }
       monthly.appendChild(metrics);
@@ -63,7 +67,7 @@ function renderProgress(container) {
   const events = ["workout-history-change", "workout-library-status", "workout-social-change"];
   for (const event of events) window.addEventListener(event, update);
   update();
-  const cleanupRanking = renderLeaderboard(ranking, { embedded: true });
+  const cleanupRanking = renderLeaderboard(ranking, { embedded: true, showProfile: !embedded });
   void window.workoutLibrary.loadHistory();
   return () => {
     for (const event of events) window.removeEventListener(event, update);

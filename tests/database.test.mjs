@@ -527,7 +527,7 @@ test("full app edits a private plan and atomically syncs offline detailed result
   assert.equal(history[0].revision, 2);
   assert.equal(history[0].steps["squat:1"], "skipped");
   assert.equal(Number((await board())[0].points), 10);
-  w.document.querySelector('[data-view="progress"]').click();
+  w.document.querySelector('[data-view="profile"]').click();
   for (let attempt = 0; attempt < 100 && w.workoutLibrary.snapshot().historyLoading; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }

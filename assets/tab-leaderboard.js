@@ -1,4 +1,4 @@
-function renderLeaderboard(container, { embedded = false } = {}) {
+function renderLeaderboard(container, { embedded = false, showProfile = true } = {}) {
   const social = window.workoutSocial;
   container.replaceChildren();
   container.append(
@@ -71,7 +71,9 @@ function renderLeaderboard(container, { embedded = false } = {}) {
   const ruleDetails = document.createElement("details");
   ruleDetails.className = "social-panel";
   ruleDetails.append(textEl("summary", "Regole e sincronizzazione"), rules);
-  container.append(status, actions, standings, account, ruleDetails);
+  container.append(status, actions, standings);
+  if (showProfile) container.appendChild(account);
+  container.appendChild(ruleDetails);
   let displayedUser = null;
   let displayedName = null;
 

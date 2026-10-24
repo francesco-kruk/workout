@@ -3,7 +3,7 @@ function boot() {
   const loading = document.getElementById("loading");
   const nav = document.querySelector(".app-nav");
   const navButtons = [...nav.querySelectorAll("[data-view]")];
-  const logout = document.getElementById("sign-out");
+  const header = document.querySelector(".app-header");
   const config = window.WORKOUT_SOCIAL_CONFIG || {};
   const configured = Boolean(config.url && config.publishableKey);
   let cleanupView = null;
@@ -16,13 +16,9 @@ function boot() {
     const library = window.workoutLibrary.snapshot();
     const social = window.workoutSocial.snapshot();
     if (status) {
-      status.textContent = screen.startsWith("app:") ? library.error || social.error || library.notice || social.notice || (social.user
-        ? library.loading ? "Caricamento piano personale..." : library.record ? "" : "Crea il tuo primo piano."
-        : "Modalità esempio · progressi salvati solo su questo browser.") : "";
-    }
-    if (logout) {
-      logout.hidden = !social.user;
-      logout.disabled = social.busy;
+      status.textContent = screen.startsWith("app:") ? library.error || social.error || library.notice || social.notice || "" : "";
+      status.hidden = !status.textContent;
+      status.classList.toggle("error", Boolean(library.error || social.error));
     }
   }
 
@@ -56,8 +52,8 @@ function boot() {
     }
     if (activeView === "plan") {
       cleanupView = renderPersonalPlan(app);
-    } else if (activeView === "progress") {
-      cleanupView = renderProgress(app);
+    } else if (activeView === "profile") {
+      cleanupView = renderProfile(app);
     } else if (!library.plan) {
       app.replaceChildren(
         textEl("h2", "La tua scheda"),
@@ -81,6 +77,7 @@ function boot() {
       screen = next;
       loading?.remove();
       nav.hidden = !screen.startsWith("app:");
+      if (header) header.hidden = !nav.hidden;
       document.body.classList.toggle("auth-entry", nav.hidden);
       if (!nav.hidden && configured && !window.workoutLibrary.snapshot().record) setActiveView("plan");
     }
@@ -98,7 +95,6 @@ function boot() {
     setActiveView(button.dataset.view);
     renderView();
   });
-  logout?.addEventListener("click", () => { void window.workoutSocial.signOut(); });
   window.addEventListener("workout-library-will-change", () => {
     cleanupView?.();
     cleanupView = null;

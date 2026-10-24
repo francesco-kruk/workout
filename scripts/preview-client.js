@@ -7,13 +7,14 @@
   let database;
   let signedIn = true;
   let authChanged;
+  let demoPassword = "Anteprima123!";
   const ok = (data) => ({ data, error: null });
   const persist = () => localStorage.setItem(key, JSON.stringify(database));
   const member = () => ({ user_id: userId, display_name: database.name });
-  const session = () => signedIn ? { user: { id: userId } } : null;
+  const session = () => signedIn ? { user: { id: userId, email: database.email } } : null;
 
-  const banner = textEl("p", "Anteprima locale · account e classifica dimostrativi. Modifiche salvate solo in questo browser; nessun dato inviato al server.", "social-panel");
-  document.querySelector(".app-header").prepend(banner);
+  const banner = textEl("p", "Anteprima locale · account e classifica dimostrativi. Modifiche salvate solo in questo browser; nessun dato inviato al server. Password demo iniziale: Anteprima123! (ripristinata al ricaricamento). Non usare credenziali reali.", "social-panel preview-banner");
+  document.body.prepend(banner);
   window.WORKOUT_SOCIAL_CONFIG = { url: "http://127.0.0.1", publishableKey: "local-preview-only" };
 
   window.loadSupabaseClient = async () => {
@@ -22,17 +23,21 @@
     else {
       const definition = await loadPlan();
       database = {
-        name: "Tu", history: [],
+        name: "Tu", email: "demo@example.test", history: [],
         plans: [{ id: crypto.randomUUID(), user_id: userId, revision: 1, created_at: new Date().toISOString(), definition }],
       };
       persist();
     }
+    database.email ||= "demo@example.test";
     const client = {
       auth: {
         getSession: async () => ok({ session: session() }),
         onAuthStateChange: (callback) => { authChanged = callback; },
         signOut: async () => { signedIn = false; return ok(null); },
-        signInWithPassword: async () => {
+        signInWithPassword: async ({ email, password }) => {
+          if (email !== database.email || password !== demoPassword) {
+            return { data: null, error: new Error("Usa l'email demo e la password demo indicata nel banner, oppure quella modificata in questa anteprima.") };
+          }
           signedIn = true;
           authChanged?.("SIGNED_IN", session());
           return ok({ session: session() });
@@ -41,6 +46,14 @@
           signedIn = true;
           authChanged?.("SIGNED_IN", session());
           return ok({ session: session() });
+        },
+        updateUser: async (attributes) => {
+          if (!signedIn) return { data: null, error: new Error("Accedi all'anteprima.") };
+          if (attributes.email) database.email = attributes.email;
+          if (attributes.password) demoPassword = attributes.password;
+          persist();
+          authChanged?.("USER_UPDATED", session());
+          return ok({ user: session().user });
         },
       },
       from: (table) => {
