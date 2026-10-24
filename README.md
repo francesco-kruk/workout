@@ -260,18 +260,69 @@ completion, monthly training days/Punti Aura, the universal weekly multiplier,
 private history, and the friends ranking.
 Local pending results are labeled separately from synchronized scores and history.
 
-**Modifica piano** opens the editor for the plan title, shared warmup, ordered
-training days, standard exercises with required/optional sets and rest, and
-AMRAP circuits with duration and exercise targets. Days and exercises expand
-only when needed. Add, remove, and reorder
-items through the UI. A member can create from scratch, personalize the bundled
-example, or import a version-2 JSON file; **Esporta JSON** downloads the current
-draft. JSON import/export and draft discard are secondary options. Drafts stay
+**Piano** offers three creation paths: **Manualmente**, **Modello CSV**, and
+**Con un agente**. Manual creation and **Modifica piano** use a guided editor:
+plan details and optional shared warm-up, a day/exercise overview, one exercise
+at a time, then review and save. Jump back to any day or exercise; add, remove,
+and reorder items through the overview. Personalizing the bundled example remains
+available. **Esporta CSV** downloads the saved plan without opening the editor;
+**Esporta CSV della bozza** exports pending work for recovery (incomplete fields
+must be corrected before reimporting). Draft discard is a secondary option. Drafts stay
 on the device: **Riprendi modifica** reopens one explicitly, and **Torna al piano**
 leaves it intact. **Salva piano** saves the plan online. No repository editing is
-necessary. PDF import and AI extraction are not yet supported.
+necessary. The interface accepts and exports **CSV only**, not JSON. Previously
+downloaded JSON files are no longer accepted by the upload interface. Existing
+saved plans and drafts keep working: JSON remains the internal storage/validation
+format and is converted automatically. PDF import and hosted AI extraction are
+not supported.
 
-With an existing plan, **Nuovo piano** starts a blank replacement; the current
+### CSV template and agent-assisted creation
+
+Download **Scarica modello CSV**, edit it in Excel or Google Sheets, and export
+as UTF-8 CSV. Remove unwanted example rows. Keep the exact headers from
+[`data/workout-plan-template.csv`](data/workout-plan-template.csv); the single
+table contains one `plan` row (format version `1` and title), optional `warmup`
+rows, `day` rows, and `exercise` rows linked through a unique `day_key`.
+Day keys are not internal IDs. Row order determines day order and exercise order
+within a day. The app generates internal IDs on every import.
+
+Use `standard` / `amrap` for day types, `reps` / `seconds` for standard tracking,
+and `true` / `false` for weight. Standard `sets` and numeric `rest_seconds` are
+required; enter `0` explicitly for no recovery. AMRAP requires a day-level
+`duration_minutes`; leave exercise sets and tracking columns blank. Leave all
+other non-applicable columns blank. Optional standard tracking defaults to reps
+without weight. Targets remain free text. The limits described under the internal
+format below apply equally to CSV. Unknown columns/row types, duplicate day keys,
+orphan exercises, malformed CSV, and invalid values produce explicit errors.
+
+Comma and semicolon separators, quoted multiline text, escaped quotes, UTF-8 BOM,
+and CRLF/LF are supported. Files are limited to 800000 bytes and 1600 records.
+Import spreadsheet text columns as text, not formulas. Export protects text
+beginning with formula-like characters (including after leading spaces), apostrophes,
+or tab/newline characters with a reversible apostrophe prefix; do not casually
+strip that prefix in your spreadsheet.
+
+Uploading opens a **read-only preview**, without changing your saved plan or draft.
+Cancel to leave everything intact. Confirm **Usa CSV come bozza** or
+**Sostituisci bozza con CSV** to stage the complete replacement locally; no merging
+occurs. Review and explicitly **Salva piano** to activate it. Imports start fresh
+comparison identity; publication starts separate progress, retaining prior history.
+
+For agent assistance, download the same template and **Scarica skill**, then
+attach both to your preferred agent and use **Copia prompt**. The
+[`workout-plan` skill](assets/skills/workout-plan/SKILL.md) describes the exact
+format, examples, constraints, and workflow. Downloading does not install it;
+use your agent's documented installation mechanism or attach the file directly.
+Agents return a CSV for you to upload/review/save; they do not receive credentials,
+publish directly, or access private history. There is no MCP server or AI service
+in the app.
+
+Repository contributors and agents can validate a generated file with
+`npm run validate -- path/to/plan.csv`. The CLI also accepts internal JSON paths;
+`npm run validate` still validates the bundled example.
+
+With an existing plan, **Nuovo piano** opens the three creation choices;
+**Crea scheda** starts a blank manual replacement. The current
 plan remains active until the replacement is saved. An existing draft must be
 resumed or explicitly discarded first, so starting a new plan cannot erase it.
 The local example is read-only: creating and editing personal plans requires
@@ -366,8 +417,9 @@ AMRAP comparisons require the same day identity, duration, ordered exercises,
 targets, and instructions. New plans/imports receive a fresh namespace even if
 their names/IDs match existing exercises. Old plans without a namespace use a
 legacy namespace, retaining compatibility. Do not manually reuse IDs/namespaces
-for a different movement. JSON exports preserve the namespace, but importing
-deliberately starts a new history rather than guessing a link.
+for a different movement. CSV exports preserve workout content, not internal IDs
+or tracking namespaces; importing deliberately starts a new history rather than
+guessing a link.
 
 Only the owner can read actual performance. Friends see attendance and points,
 never weights, exercise definitions, or private results. Performance does not
@@ -384,10 +436,11 @@ source for signed-in members' plans. Guest progress stays separate and is never
 silently imported into an account. The example can be missing/unavailable without
 blocking private plan loading or sign-in.
 
-### JSON format
+### Internal JSON format (developer reference)
 
-Exports/imports use the same `version: 2`, `title`, `warmup`, and `sessions`
-structure as `data/workout-plan.json`. The browser, validation script, and database
+Stored plans use the same `version: 2`, `title`, `warmup`, and `sessions`
+structure as `data/workout-plan.json`. Users and agents exchange CSV instead;
+the app converts it automatically. The browser, validation script, and database
 validate it. Limits protect rendering and submission size: 0–50 warmup items,
 1–30 days, 1–50 exercises per day, 1–30 required sets, 0–30 optional sets, at most
 1500 steps per day, and AMRAP duration 1–180 minutes (for example `"20 minuti"`).

@@ -288,26 +288,29 @@ test("new plans save without warm-up and existing warm-up can be fully removed a
   assert.equal(reloaded.w.workoutLibrary.getDraft().definition.warmup.length, 1);
 });
 
-test("empty warm-up JSON round-trips and both workout types complete without warm-up", async (t) => {
+test("empty warm-up CSV round-trips and both workout types complete without warm-up", async (t) => {
   const noWarmup = structuredClone(definition);
   noWarmup.warmup = [];
   const { w, app } = await mount(t);
   const file = app.querySelector('input[type="file"]');
-  Object.defineProperty(file, "files", { value: [{ size: 500, text: async () => JSON.stringify(noWarmup) }] });
+  Object.defineProperty(file, "files", { value: [{ name: "plan.csv", size: 500, text: async () => w.exportWorkoutCsv(noWarmup) }] });
   file.dispatchEvent(new w.Event("change"));
+  await until(() => app.querySelector(".import-preview"));
+  click(w, "Usa CSV come bozza");
   await until(() => app.querySelector(".plan-editor"));
+  const circuitId = w.workoutLibrary.getDraft().definition.sessions[1].id;
   let exported;
   w.URL.createObjectURL = (blob) => { exported = blob; return "blob:no-warmup"; };
   w.URL.revokeObjectURL = () => {};
   w.HTMLAnchorElement.prototype.click = () => {};
-  click(w, "Esporta JSON");
+  click(w, "Esporta CSV della bozza");
   const reader = new w.FileReader();
   const content = new Promise((resolve, reject) => {
     reader.onload = () => resolve(reader.result);
     reader.onerror = () => reject(reader.error);
   });
   reader.readAsText(exported);
-  assert.deepEqual(JSON.parse(await content).warmup, []);
+  assert.equal(w.parseWorkoutCsv(await content).warmup.length, 0);
   submitForm(w, app.querySelector(".plan-editor"));
   await until(() => w.workoutLibrary.snapshot().record);
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
@@ -318,7 +321,7 @@ test("empty warm-up JSON round-trips and both workout types complete without war
   assert.ok(app.querySelector(".completion-card"));
   assert.equal(w.pendingAttendance(alice).length, 1);
   click(w, "Passa a Circuito");
-  w.updateAmrap("circuit", { remainingMilliseconds: 0, rounds: 2 });
+  w.updateAmrap(circuitId, { remainingMilliseconds: 0, rounds: 2 });
   navigate(w, "plan");
   navigate(w, "workout");
   click(w, "Completa AMRAP");
@@ -934,7 +937,7 @@ test("first-time member creates a private plan with the editor and can publish w
   input(w, "Obiettivo / ripetizioni", "5 ripetizioni");
   input(w, "Serie obbligatorie", "2");
   input(w, "Recupero (secondi)", "60");
-  w.document.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  submitForm(w, w.document.querySelector(".plan-editor"));
   await until(() => w.workoutLibrary.snapshot().record?.revision === 1);
   assert.equal(state.plans.get(alice).definition.title, "La mia nuova scheda");
   assert.equal(w.workoutLibrary.getDraft(), null);
@@ -959,8 +962,7 @@ test("new plans require numeric rest and nonblank essential fields without requi
   assert.equal(w.workoutLibrary.getDraft().definition.sessions[0].exercises[0].rest, undefined);
   submitForm(w, form);
   assert.equal(state.calls.some((call) => call.name === "save_workout_plan"), false);
-  assert.equal(rest.closest(".editor-day").open, true);
-  assert.equal(rest.closest(".editor-section").open, true);
+  assert.equal(rest.closest(".wizard-panel").hidden, false);
   for (const value of ["", "-1", "1.5", "3601", "60 secondi", "60-90"]) {
     input(w, "Recupero (secondi)", value);
     submitForm(w, form);
@@ -1028,9 +1030,9 @@ test("strict rest validation cannot be bypassed by library saves, imports or inv
   navigate(w, "plan");
   click(w, "Riprendi modifica");
   const file = app.querySelector('input[type="file"]');
-  Object.defineProperty(file, "files", { value: [{ size: 500, text: async () => JSON.stringify(invalid) }] });
+  Object.defineProperty(file, "files", { value: [{ name: "invalid.csv", size: 500, text: async () => w.exportWorkoutCsv(invalid) }] });
   file.dispatchEvent(new w.Event("change"));
-  await until(() => app.querySelector(".social-status").textContent.includes("recupero obbligatorio"));
+  await until(() => app.querySelector(".social-status").textContent.includes("rest_seconds"));
   assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
   const missingRest = record(alice, "Mancante");
   delete missingRest.definition.sessions[0].exercises[0].rest;
@@ -1121,7 +1123,7 @@ test("offline editor drafts survive reload; publication creates a new version an
   click(w, "Modifica piano");
   input(w, "Titolo della scheda", "Seconda versione");
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
-  w.document.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  submitForm(w, w.document.querySelector(".plan-editor"));
   await until(() => w.document.querySelector(".social-status")?.textContent?.includes("offline")
     || w.document.body.textContent.includes("Torna online"));
   assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
@@ -1132,19 +1134,22 @@ test("offline editor drafts survive reload; publication creates a new version an
   click(second.w, "Riprendi modifica");
   assert.ok(second.w.document.querySelector(".plan-editor"));
   assert.equal(second.w.workoutLibrary.getDraft().definition.title, "Seconda versione");
-  second.w.document.querySelector(".plan-editor").dispatchEvent(new second.w.Event("submit", { cancelable: true }));
+  submitForm(second.w, second.w.document.querySelector(".plan-editor"));
   await until(() => second.w.workoutLibrary.snapshot().record?.revision === 2);
   assert.equal(Object.keys(second.w.getProgress("strength").steps).length, 0);
   const preserved = JSON.parse(second.w.localStorage.getItem(`workout.progress:${alice}:${original.id}`));
   assert.equal(preserved.sessions.strength.steps["warmup:warm"], "completed");
 });
 
-test("validated JSON import, structural editing and export are available through the UI", async (t) => {
+test("validated CSV preview, structural editing and export are available through the UI", async (t) => {
   const { w } = await mount(t);
   navigate(w, "plan");
   const file = w.document.querySelector('input[type="file"]');
-  Object.defineProperty(file, "files", { value: [{ size: 500, text: async () => JSON.stringify(definition) }] });
+  Object.defineProperty(file, "files", { value: [{ name: "plan.csv", size: 500, text: async () => w.exportWorkoutCsv(definition) }] });
   file.dispatchEvent(new w.Event("change"));
+  await until(() => Boolean(w.document.querySelector(".import-preview")));
+  assert.equal(w.workoutLibrary.getDraft(), null);
+  click(w, "Usa CSV come bozza");
   await until(() => Boolean(w.document.querySelector(".plan-editor")));
   assert.equal(w.workoutLibrary.getDraft().definition.title, definition.title);
   assert.equal(w.workoutLibrary.getDraft().definition.sessions[0].exercises[0].measurementMode, "reps");
@@ -1162,30 +1167,187 @@ test("validated JSON import, structural editing and export are available through
   w.URL.createObjectURL = (blob) => { exported = blob; return "blob:demo"; };
   w.URL.revokeObjectURL = () => {};
   w.HTMLAnchorElement.prototype.click = function () { downloaded = this.download; };
-  click(w, "Esporta JSON");
-  assert.equal(downloaded, "scheda-allenamento.json");
+  click(w, "Esporta CSV della bozza");
+  assert.equal(downloaded, "scheda-allenamento.csv");
   const reader = new w.FileReader();
   const content = new Promise((resolve, reject) => {
     reader.onload = () => resolve(reader.result);
     reader.onerror = () => reject(reader.error);
   });
   reader.readAsText(exported);
-  const exportedPlan = JSON.parse(await content);
-  assert.equal(exportedPlan.sessions[0].exercises[0].measurementMode, "reps");
-  assert.equal(exportedPlan.sessions[0].exercises[0].usesWeight, true);
+  const exportedCsv = await content;
+  assert.match(exportedCsv, /"reps","true"/);
+  assert.throws(() => w.parseWorkoutCsv(exportedCsv), /nome|obiettivo|nome|serie|recupero/i);
 });
 
-test("an invalid JSON import shows errors without overwriting an existing personal plan", async (t) => {
+test("JSON uploads are rejected without overwriting an existing personal plan or draft", async (t) => {
   const original = record(alice, "Originale");
   const { w } = await mount(t, { plans: new Map([[alice, original]]) });
   navigate(w, "plan");
   click(w, "Modifica piano");
   const file = w.document.querySelector('input[type="file"]');
-  Object.defineProperty(file, "files", { value: [{ size: 20, text: async () => '{"version":2}' }] });
+  Object.defineProperty(file, "files", { value: [{ name: "plan.json", size: 20, text: async () => '{"version":2}' }] });
   file.dispatchEvent(new w.Event("change"));
-  await until(() => w.document.body.textContent.includes("Riscaldamento:"));
+  await until(() => w.document.body.textContent.includes("Formato non supportato"));
   assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
   assert.equal(w.workoutLibrary.getDraft().definition.title, "Originale");
+});
+
+function selectCsv(w, source, { name = "scheda.csv", size = 500, index = 0 } = {}) {
+  const file = w.document.querySelectorAll('input[type="file"]')[index];
+  assert.ok(file);
+  Object.defineProperty(file, "files", { configurable: true, value: [{ name, size, text: typeof source === "function" ? source : async () => source }] });
+  file.dispatchEvent(new w.Event("change"));
+  return file;
+}
+
+test("the creation hub exposes three paths, CSV-only transfers, skill download and a usable agent prompt", async (t) => {
+  const { w, app } = await mount(t);
+  assert.deepEqual([...app.querySelectorAll(".creation-paths h3")].map((item) => item.textContent), ["Manualmente", "Modello CSV", "Con un agente"]);
+  assert.equal(app.querySelector('a[download="SKILL.md"]').getAttribute("href"), "assets/skills/workout-plan/SKILL.md");
+  assert.equal(app.querySelectorAll('a[href="data/workout-plan-template.csv"]').length, 2);
+  assert.ok([...app.querySelectorAll('input[type="file"]')].every((input) => input.accept === ".csv,text/csv"));
+  assert.doesNotMatch(app.textContent, /JSON/);
+  let copied;
+  Object.defineProperty(w.navigator, "clipboard", { configurable: true, value: { writeText: async (text) => { copied = text; } } });
+  click(w, "Copia prompt");
+  await until(() => app.textContent.includes("Prompt copiato."));
+  assert.equal(copied, app.querySelector('textarea[aria-label="Prompt per l\'agente"]').value);
+  assert.match(copied, /CSV completo/);
+  Object.defineProperty(w.navigator, "clipboard", { value: undefined });
+  click(w, "Copia prompt");
+  await until(() => app.textContent.includes("Seleziona e copia"));
+  assert.ok(app.querySelector(".social-status.error"));
+});
+
+test("guided manual entry navigates one exercise at a time and only saves from review", async (t) => {
+  const { w, app, state } = await mount(t);
+  click(w, "Crea scheda");
+  const visible = () => [...app.querySelectorAll(".wizard-panel")].filter((panel) => !panel.hidden);
+  assert.equal(visible().length, 1);
+  assert.equal(visible()[0].dataset.screen, "details");
+  input(w, "Titolo della scheda", "Piano guidato");
+  click(w, "Continua alle giornate");
+  input(w, "Nome giornata", "Forza");
+  click(w, "Modifica esercizio");
+  assert.equal(visible()[0].dataset.screen, "exercise");
+  input(w, "Nome esercizio", "Squat");
+  input(w, "Obiettivo / ripetizioni", "10");
+  click(w, "Completa giornata");
+  assert.equal(visible()[0].dataset.screen, "exercise");
+  input(w, "Recupero (secondi)", "0");
+  click(w, "Completa giornata");
+  assert.equal(visible()[0].dataset.screen, "days");
+  assert.match(visible()[0].textContent, /Squat/);
+  assert.equal(state.calls.filter((call) => call.name === "save_workout_plan").length, 0);
+  click(w, "Rivedi e continua");
+  assert.equal(visible()[0].dataset.screen, "review");
+  click(w, "Modifica Squat");
+  assert.equal(visible()[0].dataset.screen, "exercise");
+  click(w, "3. Rivedi piano");
+  click(w, "Salva piano");
+  await until(() => w.workoutLibrary.snapshot().record);
+  assert.equal(state.plans.get(alice).definition.title, "Piano guidato");
+});
+
+test("CSV preview and cancellation preserve the exact existing draft, active plan and progress", async (t) => {
+  const original = record(alice, "Originale");
+  const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  navigate(w, "plan");
+  click(w, "Modifica piano");
+  input(w, "Titolo della scheda", "La mia bozza");
+  const before = snapshotStorage(w);
+  const candidate = { ...structuredClone(definition), title: "Da CSV" };
+  selectCsv(w, w.exportWorkoutCsv(candidate));
+  await until(() => app.querySelector(".import-preview"));
+  assert.deepEqual(snapshotStorage(w), before);
+  assert.match(app.textContent, /bozza “La mia bozza”/);
+  click(w, "Annulla importazione");
+  assert.deepEqual(snapshotStorage(w), before);
+  assert.equal(w.workoutLibrary.getDraft().definition.title, "La mia bozza");
+  selectCsv(w, w.exportWorkoutCsv(candidate));
+  await until(() => app.querySelector(".import-preview"));
+  click(w, "Sostituisci bozza con CSV");
+  const draft = w.workoutLibrary.getDraft();
+  assert.equal(draft.definition.title, "Da CSV");
+  assert.equal(draft.baseVersionId, original.id);
+  assert.ok(draft.definition.trackingId);
+  assert.notEqual(draft.definition.sessions[0].id, original.definition.sessions[0].id);
+  assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
+  assert.equal(w.getProgress("strength").steps["warmup:warm"], "completed");
+  assert.equal(app.querySelector('.wizard-panel[data-screen="review"]').hidden, false);
+  click(w, "Salva piano");
+  await until(() => w.workoutLibrary.snapshot().record.revision === 2);
+  assert.equal(w.workoutLibrary.snapshot().plan.title, "Da CSV");
+  const progress = JSON.parse(w.localStorage.getItem(`workout.progress:${alice}:${original.id}`));
+  assert.equal(progress.sessions.strength.steps["warmup:warm"], "completed");
+});
+
+test("invalid CSV and oversized files show errors and can be retried without altering a draft", async (t) => {
+  const { w, app } = await mount(t);
+  click(w, "Crea scheda");
+  const before = w.localStorage.getItem(`workout.planDraft:${alice}`);
+  const file = selectCsv(w, "not,a,template");
+  await until(() => app.textContent.includes("Intestazioni CSV"));
+  assert.match(app.textContent, /Intestazioni CSV/);
+  assert.equal(file.value, "");
+  assert.equal(w.localStorage.getItem(`workout.planDraft:${alice}`), before);
+  selectCsv(w, () => { assert.fail("oversized files must not be read"); }, { size: 800001 });
+  await until(() => app.textContent.includes("File troppo grande"));
+  assert.equal(w.localStorage.getItem(`workout.planDraft:${alice}`), before);
+  selectCsv(w, w.exportWorkoutCsv(definition));
+  await until(() => app.querySelector(".import-preview"));
+  assert.equal(w.localStorage.getItem(`workout.planDraft:${alice}`), before);
+});
+
+test("a stale CSV preview cannot overwrite a newer draft from another editing context", async (t) => {
+  const { w, app } = await mount(t);
+  selectCsv(w, w.exportWorkoutCsv(definition));
+  await until(() => app.querySelector(".import-preview"));
+  const newer = w.workoutLibrary.writeDraft({ ...structuredClone(definition), title: "Più recente" });
+  click(w, "Usa CSV come bozza");
+  assert.match(app.textContent, /La bozza è cambiata/);
+  assert.equal(w.workoutLibrary.getDraft().versionId, newer.versionId);
+  click(w, "Annulla importazione");
+  assert.equal(w.workoutLibrary.getDraft().definition.title, "Più recente");
+  assert.equal(app.querySelector(".plan-editor input").value, "Più recente");
+});
+
+test("overlapping file selections use only the latest file and navigation cancels pending reads", async (t) => {
+  const { w, app } = await mount(t);
+  let releaseFirst;
+  selectCsv(w, () => new Promise((resolve) => { releaseFirst = resolve; }));
+  const latest = { ...structuredClone(definition), title: "Ultimo file" };
+  selectCsv(w, w.exportWorkoutCsv(latest), { index: 1 });
+  await until(() => app.querySelector(".import-preview"));
+  releaseFirst(w.exportWorkoutCsv(definition));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.match(app.querySelector(".import-preview").textContent, /Ultimo file/);
+  click(w, "Annulla importazione");
+  click(w, "Crea scheda");
+  let release;
+  selectCsv(w, () => new Promise((resolve) => { release = resolve; }));
+  click(w, "2. Giornate");
+  release(w.exportWorkoutCsv(definition));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(app.querySelector(".import-preview"), null);
+  assert.equal(app.querySelector('.wizard-panel[data-screen="days"]').hidden, false);
+  assert.equal(w.workoutLibrary.getDraft().definition.title, "La mia scheda");
+});
+
+test("draft edits during file reading are preserved instead of replaced by the file", async (t) => {
+  const { w, app } = await mount(t);
+  click(w, "Crea scheda");
+  let release;
+  selectCsv(w, () => new Promise((resolve) => { release = resolve; }));
+  input(w, "Titolo della scheda", "Modifica durante lettura");
+  const version = w.workoutLibrary.getDraft().versionId;
+  release(w.exportWorkoutCsv(definition));
+  await until(() => app.textContent.includes("La bozza è cambiata durante la lettura"));
+  assert.equal(w.workoutLibrary.getDraft().versionId, version);
+  assert.equal(app.querySelector(".import-preview"), null);
 });
 
 test("a cached personal plan remains usable during a backend outage, with an explicit status", async (t) => {
@@ -1250,12 +1412,12 @@ test("a delayed import from an old account cannot overwrite the next account's d
   const file = w.document.querySelector('input[type="file"]');
   let completeFile;
   const text = new Promise((resolve) => { completeFile = resolve; });
-  Object.defineProperty(file, "files", { value: [{ size: 500, text: () => text }] });
+  Object.defineProperty(file, "files", { value: [{ name: "plan.csv", size: 500, text: () => text }] });
   file.dispatchEvent(new w.Event("change"));
   state.id = bob;
   state.callback("SIGNED_IN", { user: { id: bob } });
   await until(() => w.workoutLibrary.snapshot().userId === bob && !w.workoutLibrary.snapshot().loading);
-  completeFile(JSON.stringify(definition));
+  completeFile(w.exportWorkoutCsv(definition));
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(w.localStorage.getItem(`workout.planDraft:${bob}`), null);
 });
@@ -1369,22 +1531,19 @@ test("Plan browses daily and full views without mutating the active workout", as
   assert.match(app.textContent, /Squat/);
 });
 
-test("editor is explicit, keeps drafts on return, and reveals invalid collapsed fields", async (t) => {
+test("editor is explicit, keeps drafts on return, and reveals the invalid exercise step", async (t) => {
   const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Piano")]]) });
   assert.equal(app.querySelector(".plan-editor"), null);
   click(w, "Modifica piano");
-  assert.equal(app.querySelector(".editor-day").open, false);
+  assert.equal(app.querySelector('[data-screen="days"].wizard-panel').hidden, true);
   const file = app.querySelector('input[type="file"]');
   assert.equal(file.closest("details").open, false);
   input(w, "Titolo della scheda", "Bozza conservata");
   const exercise = input(w, "Nome esercizio", "");
-  assert.equal(exercise.closest("details").open, false);
-  assert.equal(app.querySelector("form").checkValidity(), false);
-  let ancestor = exercise.parentElement;
-  while (ancestor.tagName !== "FORM") {
-    if (ancestor.tagName === "DETAILS") assert.equal(ancestor.open, true);
-    ancestor = ancestor.parentElement;
-  }
+  assert.equal(exercise.closest(".wizard-panel").hidden, true);
+  click(w, "3. Rivedi piano");
+  assert.equal(exercise.closest(".wizard-panel").hidden, false);
+  assert.equal(w.document.activeElement, exercise);
   input(w, "Nome esercizio", "Squat modificato");
   click(w, "Aggiungi giornata");
   assert.equal([...app.querySelectorAll(".editor-day")].at(-1).open, true);
@@ -1435,15 +1594,15 @@ test("Progress separates local completion and pending results from monthly synch
   assert.equal(app.querySelector(".personal-progress [role=progressbar]").getAttribute("aria-valuenow"), "100");
 });
 
-test("schema validation reveals collapsed editor sections and keeps the active plan unchanged", async (t) => {
+test("schema validation reveals the exercise step and keeps the active plan unchanged", async (t) => {
   const original = record(alice, "Piano attivo");
   const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
   click(w, "Modifica piano");
   const rest = input(w, "Recupero (secondi)", "1.5");
-  assert.equal(app.querySelector(".editor-day").open, false);
+  assert.equal(rest.closest(".wizard-panel").hidden, true);
   app.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
   assert.match(rest.validationMessage, /numero intero da 0 a 3600/);
-  assert.equal(app.querySelector(".editor-day").open, true);
+  assert.equal(rest.closest(".wizard-panel").hidden, false);
   assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
   assert.ok(w.workoutLibrary.getDraft());
 });
@@ -1454,6 +1613,9 @@ test("an existing plan exposes editing and blank replacement without losing the 
   const edit = [...app.querySelectorAll("button")].find((button) => button.textContent === "Modifica piano");
   assert.ok(edit.classList.contains("btn-primary"));
   click(w, "Nuovo piano");
+  assert.ok(app.querySelector(".creation-paths"));
+  assert.equal(w.workoutLibrary.getDraft(), null);
+  click(w, "Crea scheda");
   assert.equal(w.workoutLibrary.getDraft().definition.title, "La mia scheda");
   assert.equal(w.workoutLibrary.getDraft().definition.sessions.length, 1);
   assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
@@ -1532,6 +1694,9 @@ function profileForm(app, kind, values) {
 }
 
 function submitForm(w, form) {
+  if (form.classList.contains("plan-editor")) {
+    [...form.querySelectorAll("button")].find((button) => button.textContent === "3. Rivedi piano").click();
+  }
   form.dispatchEvent(new w.Event("submit", { cancelable: true }));
 }
 
@@ -2049,7 +2214,7 @@ test("exercise tracking choices persist in editor drafts and publication fixes t
   const restoredMode = [...app.querySelectorAll("label")].find((label) => label.firstChild.textContent === "Tracciamento").querySelector("select");
   assert.equal(restoredMode.value, "seconds");
   assert.equal(app.querySelector(".tracking-weight input").checked, false);
-  app.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  submitForm(w, app.querySelector(".plan-editor"));
   await until(() => w.workoutLibrary.snapshot().record.revision === 2);
   assert.match(app.textContent, /Tracciamento: durata in secondi/);
   assert.doesNotMatch(app.textContent, /e peso \(kg\)/);
