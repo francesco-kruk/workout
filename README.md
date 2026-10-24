@@ -6,9 +6,16 @@ each member's private workout plan and completed-workout history, and connects o
 friends group through **Profilo**. Everyone uses the same website; no forks or
 application servers are required.
 
-The interface uses a high-contrast, grayscale training theme: near-black
-backgrounds, charcoal panels, bold headings, and white primary actions. Red is
-reserved for errors; workout states also use text and distinct border/fill styles.
+The interface keeps a gritty, high-contrast training theme: pure-black backgrounds
+and panels, bold headings, and sharp edges lit by saturated electric-purple Aura.
+Black primary buttons use bright neon outlines rather than flat lavender fills;
+layered light halos and luminous Aura totals create depth without gray surfaces.
+Moving neon perimeter lights, diagonal energy streams, and bright progress trails
+connect primary actions, workout progress, and completion states; monthly Aura points
+and leaderboard scores receive extra emphasis. Decorative motion honors
+reduced-motion preferences with static neon lighting instead. Red is reserved
+for errors; workout states also use text and distinct border/fill styles. Visual
+progress does not imply that pending workouts have already earned synchronized points.
 
 ## Run locally
 

@@ -961,12 +961,21 @@ test("Progress separates local completion and pending results from monthly synch
   assert.deepEqual([...app.querySelectorAll(".progress-metrics dd")].map((cell) => cell.textContent),
     ["2", "22,5", "2 settimane", "1,25×"]);
   assert.equal(app.querySelector(".progress-metrics .metric-unit").textContent, " settimane");
+  assert.equal(app.querySelectorAll(".aura-metric").length, 1);
+  assert.equal(app.querySelector(".aura-metric dt").textContent, "Punti Aura");
+  assert.equal(app.querySelector(".aura-metric dd").textContent, "22,5");
   assert.match(app.textContent, /ottobre 2026/);
   assert.match(app.querySelector(".workout-history").textContent, /1 allenamenti locali in attesa/);
   assert.match(app.querySelector(".workout-history").textContent, /Non ancora inclusi/);
   assert.equal(app.querySelectorAll(".leaderboard-self").length, 1);
   assert.equal(app.querySelector("details.social-panel").open, false);
   assert.equal(w.pendingAttendance(alice).length, 1);
+  state.rows[0].points = 35;
+  await w.workoutSocial.refresh();
+  assert.equal(app.querySelectorAll(".aura-metric").length, 1);
+  assert.equal(app.querySelector(".aura-metric dd").textContent, "35");
+  assert.equal(app.querySelector(".leaderboard-self .aura-score").textContent, "35");
+  assert.equal(app.querySelector(".personal-progress [role=progressbar]").getAttribute("aria-valuenow"), "100");
 });
 
 test("schema validation reveals collapsed editor sections and keeps the active plan unchanged", async (t) => {
@@ -1013,6 +1022,7 @@ test("Progress works without a plan and handles history errors and retry without
   assert.match(app.querySelector(".personal-progress").textContent, /Crea un piano/);
   assert.match(app.textContent, /History unavailable/);
   assert.equal(app.querySelector(".progress-metrics"), null);
+  assert.equal(app.querySelector(".aura-metric"), null);
   assert.doesNotMatch(app.querySelector(".workout-history").textContent, /Nessun allenamento sincronizzato/);
   state.historyError = null;
   click(w, "Aggiorna storico");

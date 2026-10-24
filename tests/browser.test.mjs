@@ -236,8 +236,13 @@ test("leaderboard escapes display names, shows fractional scores, and supports p
   assert.match(container.textContent, /<img src=x/);
   assert.match(container.textContent, /12,5/);
   assert.match(container.textContent, /1,25/);
+  assert.equal(container.querySelector("th.aura-score").scope, "col");
+  assert.equal(container.querySelector("th.aura-score").textContent, "Aura Pts");
+  assert.equal(container.querySelector(".leaderboard-self td.aura-score").textContent, "12,5");
   await w.workoutSocial.saveName("Test Friend");
   assert.equal(w.workoutSocial.snapshot().member.display_name, "Test Friend");
+  assert.equal(container.querySelectorAll("td.aura-score").length, 1);
+  assert.equal(container.querySelector(".leaderboard-self td.aura-score").textContent, "12,5");
   await w.workoutSocial.signOut();
   await w.workoutSocial.signIn("friend@example.com", "my password");
   assert.equal(state.login.email, "friend@example.com");
