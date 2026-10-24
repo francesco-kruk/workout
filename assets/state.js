@@ -5,7 +5,7 @@ const STORAGE_KEYS = {
 };
 
 const PROGRESS_VERSION = 2;
-const VALID_VIEWS = new Set(["plan", "workout", "progress"]);
+const VALID_VIEWS = new Set(["plan", "workout", "profile"]);
 let workoutScope = "";
 
 function workoutStorageKey(key) {
@@ -30,8 +30,8 @@ function setCurrentSessionId(sessionId) {
 
 function getActiveView() {
   const stored = localStorage.getItem(STORAGE_KEYS.activeView);
-  if (stored === "day" || stored === "leaderboard") {
-    const migrated = stored === "day" ? "plan" : "progress";
+  if (stored === "day" || stored === "leaderboard" || stored === "progress") {
+    const migrated = stored === "day" ? "plan" : "profile";
     setActiveView(migrated);
     return migrated;
   }

@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { JSDOM } from "jsdom";
 
 const sources = {};
-for (const file of ["state", "attendance", "social", "social-config", "ui", "tab-workout", "tab-leaderboard", "tab-progress", "workout-library", "plan-editor", "plan-validation", "tab-plan", "tab-day", "auth-entry", "app"]) {
+for (const file of ["state", "attendance", "social", "social-config", "ui", "tab-workout", "tab-leaderboard", "tab-progress", "tab-profile", "workout-library", "plan-editor", "plan-validation", "tab-plan", "tab-day", "auth-entry", "app"]) {
   sources[file] = await readFile(new URL(`../assets/${file}.js`, import.meta.url), "utf8");
 }
 const plan = {
@@ -285,9 +285,9 @@ test("actual workout buttons capture optional skips and AMRAP completion without
 test("boot defaults to the daily Plan and Progress works without social config", async (t) => {
   const { w, container } = setup(t);
   w.document.body.insertAdjacentHTML("beforeend",
-    '<div id="loading"></div><nav class="app-nav"><button data-view="plan"></button><button data-view="workout"></button><button data-view="progress"></button></nav>');
+    '<div id="loading"></div><nav class="app-nav"><button data-view="plan"></button><button data-view="workout"></button><button data-view="profile"></button></nav>');
   w.loadPlan = async () => structuredClone(plan);
-  for (const file of ["plan-validation", "workout-library", "tab-plan", "tab-day", "tab-progress", "plan-editor", "auth-entry"]) w.eval(sources[file]);
+  for (const file of ["plan-validation", "workout-library", "tab-plan", "tab-day", "tab-progress", "tab-profile", "plan-editor", "auth-entry"]) w.eval(sources[file]);
   w.eval(sources.app);
   await tick();
   assert.match(container.textContent, /Riscaldamento/);
@@ -296,10 +296,10 @@ test("boot defaults to the daily Plan and Progress works without social config",
   assert.equal(w.getActiveView(), "plan");
   assert.equal(w.document.querySelectorAll(".app-nav button").length, 3);
   assert.equal(container.querySelector('[aria-pressed="true"]').textContent, "Oggi");
-  w.document.querySelector('[data-view="progress"]').click();
+  w.document.querySelector('[data-view="profile"]').click();
   assert.match(container.textContent, /Classifica non configurata/);
   assert.match(container.textContent, /Progressi su questo dispositivo/);
-  assert.equal(w.getActiveView(), "progress");
+  assert.equal(w.getActiveView(), "profile");
 });
 
 test("new completions created during a sync are flushed without needing another reconnect", async (t) => {

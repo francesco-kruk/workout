@@ -49,7 +49,8 @@ async function mount(t, {
   const state = { id: signedIn ? alice : null, plans, planError, calls: [], history: [], records: new Map(),
     approved, membershipError, beforeSession, beforeMembership, beforePlan, beforeRpc: null, authError: null,
     credentialError: null, beforeAuth: null, authCalls: 0, signupNeedsConfirmation: false, emitAuthEvents: true,
-    rows: [], historyError: null };
+    rows: [], historyError: null, emails: new Map([[alice, "alice@example.test"], [bob, "bob@example.test"]]),
+    names: new Map(), updates: [], updateError: null, pendingEmail: null, beforeUpdate: null };
   for (const entry of plans.values()) state.records.set(entry.id, entry);
   for (const [key, value] of Object.entries(storage)) w.localStorage.setItem(key, value);
   for (const file of scripts.filter((file) => file !== "app.js")) w.eval(source.get(file));
@@ -62,7 +63,7 @@ async function mount(t, {
       return { data: { user: { id: alice }, session: null }, error: null };
     }
     state.id = alice;
-    const session = { user: { id: alice, email: args.email } };
+    const session = { user: { id: alice, email: state.emails.get(alice) } };
     if (state.emitAuthEvents) state.callback("SIGNED_IN", session);
     return { data: { session }, error: null };
   };
@@ -70,11 +71,24 @@ async function mount(t, {
     auth: {
       getSession: async () => {
         if (state.beforeSession) await state.beforeSession();
-        return { data: { session: state.id ? { user: { id: state.id } } : null }, error: state.authError };
+        return { data: { session: state.id ? { user: { id: state.id, email: state.emails.get(state.id), new_email: state.pendingEmail } } : null }, error: state.authError };
       },
       onAuthStateChange: (callback) => { state.callback = callback; },
       signInWithPassword: (args) => authenticate(args, false),
       signUp: (args) => authenticate(args, true),
+      updateUser: async (attributes) => {
+        state.updates.push(attributes);
+        const id = state.id;
+        if (state.beforeUpdate) await state.beforeUpdate();
+        if (state.updateError) return { data: null, error: state.updateError };
+        if (attributes.email) {
+          if (state.requireEmailConfirmation) state.pendingEmail = attributes.email;
+          else state.emails.set(id, attributes.email);
+        }
+        const user = { id, email: state.emails.get(id), new_email: state.pendingEmail };
+        if (state.emitAuthEvents && id === state.id) state.callback("USER_UPDATED", { user });
+        return { data: { user }, error: null };
+      },
       signOut: async () => {
         if (!state.authError) state.id = null;
         return { data: null, error: state.authError };
@@ -82,13 +96,19 @@ async function mount(t, {
     },
     from: (table) => {
       let userId = state.id;
+      let updates;
       const chain = {
         select: () => chain, order: () => chain, limit: () => chain,
+        update: (value) => { updates = value; return chain; },
+        single: async () => {
+          state.names.set(userId, updates.display_name);
+          return { data: { user_id: userId, display_name: updates.display_name }, error: null };
+        },
         eq: (_field, value) => { userId = value; return chain; },
         maybeSingle: async () => {
           if (table === "friend_members") {
             if (state.beforeMembership) await state.beforeMembership(userId);
-            return { data: state.approved ? { user_id: userId, display_name: "Amico" } : null, error: state.membershipError };
+            return { data: state.approved ? { user_id: userId, display_name: state.names.get(userId) || "Amico" } : null, error: state.membershipError };
           }
           if (state.beforePlan) await state.beforePlan(userId);
           return { data: plans.get(userId) || null, error: state.planError };
@@ -350,9 +370,9 @@ test("session restoration waits for identity, membership and private plan withou
   releasePlan();
   await mounting;
   assert.equal(w.document.querySelector(".app-nav").hidden, false);
-  assert.equal(w.getActiveView(), "progress");
+  assert.equal(w.getActiveView(), "profile");
   assert.equal(w.workoutLibrary.snapshot().record.id, a.id);
-  assert.equal(w.document.querySelector('input[type="email"]'), null);
+  assert.equal(w.document.querySelector('.auth-panel input[type="email"]'), null);
   assert.equal(w.document.querySelector("#sign-out").hidden, false);
   assert.ok(state.calls.some((call) => call.name === "friends_leaderboard"));
 });
@@ -457,6 +477,9 @@ test("sign-out from a workout immediately hides private data, stops timers and p
   w.setStepStatus("circuit", "warmup:warm", "completed");
   navigate(w, "workout");
   click(w, "Avvia timer");
+  assert.equal(w.document.querySelector("#sign-out"), null);
+  navigate(w, "profile");
+  await until(() => !w.workoutSocial.snapshot().busy);
   w.document.querySelector("#sign-out").click();
   assert.equal(app.querySelector("h2").textContent, "Accedi");
   assert.equal(w.document.querySelector(".app-nav").hidden, true);
@@ -467,6 +490,7 @@ test("sign-out from a workout immediately hides private data, stops timers and p
   state.id = alice;
   state.callback("SIGNED_IN", { user: { id: alice } });
   await until(() => w.workoutSocial.snapshot().accessReady);
+  navigate(w, "workout");
   assert.ok(w.getProgress("circuit").amrap.remainingMilliseconds > 0);
   assert.match(app.textContent, /Circuito/);
 });
@@ -474,7 +498,8 @@ test("sign-out from a workout immediately hides private data, stops timers and p
 test("failed sign-out shows a retryable access error without exposing the previous account's plan", async (t) => {
   const a = record(alice, "Scheda privata");
   const { w, state, app } = await mount(t, { plans: new Map([[alice, a]]) });
-  navigate(w, "plan");
+  navigate(w, "profile");
+  await until(() => !w.workoutSocial.snapshot().busy);
   state.authError = new Error("Sign-out failed");
   click(w, "Esci");
   await until(() => !w.workoutSocial.snapshot().busy);
@@ -709,7 +734,7 @@ test("personal completions queue full result snapshots offline and synchronize i
   const submission = state.calls.find((call) => call.name === "submit_workout_result");
   assert.equal(submission.args.p_completed_at, completedAt);
   assert.equal(state.calls.filter((call) => call.name === "submit_gym_day").length, 0);
-  navigate(w, "progress");
+  navigate(w, "profile");
   await until(() => !w.workoutLibrary.snapshot().historyLoading);
   assert.match(w.document.body.textContent, /Scheda storica \(v1\)/);
   assert.match(w.document.body.textContent, /Squat, serie 3 · 5 ripetizioni: Saltato/);
@@ -758,7 +783,7 @@ test("private plans still load when the public example is unavailable", async (t
   const { w, app } = await mount(t, { plans: new Map([[alice, original]]), templateError: new Error("404") });
   assert.equal(w.workoutLibrary.snapshot().plan.title, "Solo Supabase");
   assert.match(app.textContent, /Riscaldamento/);
-  navigate(w, "progress");
+  navigate(w, "profile");
   assert.match(app.textContent, /Classifica/);
 });
 
@@ -797,18 +822,18 @@ test("a stale fetch cannot downgrade a newly published version", async (t) => {
 
 test("three-tab navigation migrates old selections and defaults to Plan", async (t) => {
   for (const [stored, expected] of [
-    ["day", "plan"], ["leaderboard", "progress"], ["workout", "workout"],
-    ["progress", "progress"], ["invalid", "plan"], [null, "plan"],
+    ["day", "plan"], ["leaderboard", "profile"], ["workout", "workout"],
+    ["progress", "profile"], ["profile", "profile"], ["invalid", "plan"], [null, "plan"],
   ]) {
     const { w } = await mount(t, {
       plans: new Map([[alice, record(alice, "Piano")]]),
       storage: stored ? { "workout.activeView": stored } : {},
     });
     assert.deepEqual([...w.document.querySelectorAll(".app-nav button")].map((button) => button.dataset.view),
-      ["plan", "workout", "progress"]);
+      ["plan", "workout", "profile"]);
     assert.equal(w.getActiveView(), expected);
     assert.equal(w.document.querySelector('.app-nav [aria-current="page"]').dataset.view, expected);
-    if (stored === "day" || stored === "leaderboard") assert.equal(w.localStorage.getItem("workout.activeView"), expected);
+    if (["day", "leaderboard", "progress"].includes(stored)) assert.equal(w.localStorage.getItem("workout.activeView"), expected);
   }
 });
 
@@ -863,7 +888,7 @@ test("editor is explicit, keeps drafts on return, and reveals invalid collapsed 
   assert.equal(app.querySelector(".plan-editor"), null);
   assert.match(app.textContent, /Riprendi modifica/);
   assert.equal(w.workoutLibrary.getDraft().definition.title, "Bozza conservata");
-  navigate(w, "progress");
+  navigate(w, "profile");
   navigate(w, "plan");
   assert.equal(app.querySelector(".plan-editor"), null);
   click(w, "Riprendi modifica");
@@ -880,11 +905,12 @@ test("Progress separates local completion and pending results from monthly synch
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
   navigate(w, "workout");
   for (const label of ["Riscaldamento completato", "Serie completata", "Serie completata", "Salta"]) click(w, label);
-  navigate(w, "progress");
+  navigate(w, "profile");
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.equal(app.querySelector(".personal-progress [role=progressbar]").getAttribute("aria-valuenow"), "100");
   assert.deepEqual([...app.querySelectorAll(".progress-metrics dd")].map((cell) => cell.textContent),
     ["2", "22,5", "2 allenamenti", "1,25×"]);
+  assert.equal(app.querySelector(".progress-metrics .metric-unit").textContent, " allenamenti");
   assert.match(app.textContent, /ottobre 2026/);
   assert.match(app.querySelector(".workout-history").textContent, /1 allenamenti locali in attesa/);
   assert.match(app.querySelector(".workout-history").textContent, /Non ancora inclusi/);
@@ -932,7 +958,7 @@ test("an existing plan exposes editing and blank replacement without losing the 
 test("Progress works without a plan and handles history errors and retry without inventing totals", async (t) => {
   const { w, state, app } = await mount(t);
   state.historyError = new Error("History unavailable");
-  navigate(w, "progress");
+  navigate(w, "profile");
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.match(app.querySelector(".personal-progress").textContent, /Crea un piano/);
   assert.match(app.textContent, /History unavailable/);
@@ -954,7 +980,7 @@ test("Progress paginates private history, preserves original definitions, and cl
     amrap_rounds: 7,
   });
   state.history = Array.from({ length: 20 }, (_, index) => historical(index));
-  navigate(w, "progress");
+  navigate(w, "profile");
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.match(app.querySelector(".workout-history").textContent, /AMRAP: 7 giri: Fatto/);
   assert.match(app.querySelector(".workout-history").textContent, /Piegamenti/);
@@ -975,6 +1001,258 @@ test("Progress paginates private history, preserves original definitions, and cl
   assert.doesNotMatch(app.textContent, /Piano originale/);
 });
 
+async function openProfile(t, options = {}) {
+  const fixture = await mount(t, { plans: new Map([[alice, record(alice, "Scheda profilo")]]), ...options });
+  navigate(fixture.w, "profile");
+  await until(() => !fixture.w.workoutSocial.snapshot().busy);
+  return fixture;
+}
+
+function profileForm(app, kind, values) {
+  const form = app.querySelector(`[data-profile-form="${kind}"]`);
+  form.closest("details").open = true;
+  for (const [name, value] of Object.entries(values)) form.elements.namedItem(name).value = value;
+  return form;
+}
+
+function submitForm(w, form) {
+  form.dispatchEvent(new w.Event("submit", { cancelable: true }));
+}
+
+test("signed-in tabs omit branding and logout until Profile, while status notices remain actionable", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Compatta")]]) });
+  assert.equal(w.document.querySelector(".app-header").hidden, true);
+  assert.equal(w.document.querySelector("#account-status").hidden, true);
+  for (const view of ["plan", "workout"]) {
+    navigate(w, view);
+    assert.equal(w.document.querySelector("#sign-out"), null);
+  }
+  w.dispatchEvent(new w.Event("offline"));
+  assert.equal(w.document.querySelector("#account-status").hidden, false);
+  assert.match(w.document.querySelector("#account-status").textContent, /offline/);
+  navigate(w, "profile");
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(app.querySelector("h2").textContent, "Profilo");
+  assert.equal(app.querySelectorAll("#sign-out").length, 1);
+  assert.equal(app.querySelectorAll('[data-profile-form="name"]').length, 1);
+  assert.equal([...app.querySelectorAll("summary")].some((summary) => summary.textContent === "Profilo nel gruppo"), false);
+  assert.match(app.querySelector(".profile-summary").textContent, /alice@example.test/);
+  assert.ok(app.querySelector(".workout-history"));
+});
+
+test("profile name editing trims, validates and refreshes standings without resetting plans or drafts", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  const original = w.workoutLibrary.snapshot().record.id;
+  w.workoutLibrary.writeDraft({ ...structuredClone(definition), title: "Bozza conservata" });
+  w.setStepStatus("strength", "warmup:warm", "completed");
+  const before = state.calls.filter((call) => call.name === "friends_leaderboard").length;
+  const form = profileForm(app, "name", { "display-name": "  Beast  " });
+  submitForm(w, form);
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.match(form.textContent, /Nome aggiornato/);
+  assert.equal(state.names.get(alice), "Beast");
+  assert.equal(app.querySelector(".profile-summary h3").textContent, "Beast");
+  assert.ok(state.calls.filter((call) => call.name === "friends_leaderboard").length > before);
+  assert.equal(w.workoutLibrary.snapshot().record.id, original);
+  assert.equal(w.workoutLibrary.getDraft().definition.title, "Bozza conservata");
+  assert.equal(w.getProgress("strength").steps["warmup:warm"], "completed");
+  const invalid = await w.workoutSocial.saveName("   ");
+  assert.equal(invalid.ok, false);
+  assert.equal(state.names.get(alice), "Beast");
+});
+
+test("profile edits stay intact on refresh and password inputs clear on leaving the view", async (t) => {
+  const { w, app } = await openProfile(t);
+  const form = profileForm(app, "email", { email: "draft@example.test", "current-password": "do not store this" });
+  await w.workoutSocial.refresh();
+  assert.equal(form.elements.email.value, "draft@example.test");
+  assert.equal(form.elements["current-password"].value, "do not store this");
+  navigate(w, "plan");
+  assert.equal(form.elements["current-password"].value, "");
+  assert.doesNotMatch(JSON.stringify(snapshotStorage(w)), /do not store this|draft@example.test/);
+});
+
+test("password mismatch and invalid input never reach credential APIs", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  const form = profileForm(app, "password", {
+    "current-password": "old secret", "new-password": "new secret", "confirm-password": "mismatch",
+  });
+  submitForm(w, form);
+  assert.match(form.textContent, /non coincidono/);
+  assert.equal(state.authCalls, 0);
+  assert.equal(state.updates.length, 0);
+  assert.ok([...form.querySelectorAll('input[type="password"]')].every((field) => field.value === ""));
+  for (const result of [
+    await w.workoutSocial.updatePassword("short", "old secret"),
+    await w.workoutSocial.updatePassword("long enough", ""),
+    await w.workoutSocial.updateEmail("not an email", "old secret"),
+    await w.workoutSocial.updateEmail("alice@example.test", "old secret"),
+  ]) assert.equal(result.ok, false);
+  assert.equal(state.authCalls, 0);
+  assert.equal(state.updates.length, 0);
+});
+
+test("wrong current password blocks email/password updates and allows retry", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  state.credentialError = new Error("Invalid login credentials");
+  const form = profileForm(app, "email", { email: "next@example.test", "current-password": "wrong secret" });
+  submitForm(w, form);
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.match(form.textContent, /non riuscita.*Invalid login credentials/);
+  assert.equal(state.updates.length, 0);
+  assert.equal(form.elements["current-password"].value, "");
+  assert.equal(form.elements.email.value, "next@example.test");
+  state.credentialError = null;
+  form.elements["current-password"].value = "correct secret";
+  submitForm(w, form);
+  await until(() => /Email aggiornata/.test(form.textContent));
+  assert.equal(state.updates.length, 1);
+  assert.equal(state.emails.get(alice), "next@example.test");
+  assert.match(app.querySelector(".profile-summary").textContent, /next@example.test/);
+});
+
+test("password changes reauthenticate the current email, preserve owner state and keep feedback through auth refresh", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  const original = w.workoutLibrary.snapshot().record.id;
+  w.setStepStatus("strength", "warmup:warm", "completed");
+  const form = profileForm(app, "password", {
+    "current-password": "old secret", "new-password": "new secret", "confirm-password": "new secret",
+  });
+  submitForm(w, form);
+  assert.ok([...form.querySelectorAll('input[type="password"]')].every((field) => field.value === ""));
+  await until(() => /Password aggiornata/.test(form.textContent));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(state.login.email, "alice@example.test");
+  assert.equal(state.login.password, "old secret");
+  assert.equal(state.updates.length, 1);
+  assert.equal(state.updates[0].password, "new secret");
+  assert.equal(w.workoutLibrary.snapshot().record.id, original);
+  assert.equal(w.getProgress("strength").steps["warmup:warm"], "completed");
+  assert.equal(form, app.querySelector('[data-profile-form="password"]'));
+  assert.match(form.textContent, /Password aggiornata/);
+  assert.doesNotMatch(JSON.stringify(snapshotStorage(w)), /old secret|new secret/);
+  assert.doesNotMatch(JSON.stringify(w.workoutSocial.snapshot()), /old secret|new secret/);
+});
+
+test("pending email changes display the effective address until confirmation", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  state.requireEmailConfirmation = true;
+  const form = profileForm(app, "email", { email: "pending@example.test", "current-password": "old secret" });
+  submitForm(w, form);
+  await until(() => /Modifica email richiesta/.test(form.textContent));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.match(app.querySelector(".profile-summary").textContent, /alice@example.test/);
+  assert.doesNotMatch(app.querySelector(".profile-summary").textContent, /pending@example.test/);
+  assert.match(app.querySelector(".profile-settings:nth-of-type(2)").textContent, /In attesa di conferma: pending@example.test/);
+  assert.equal(form.elements["current-password"].value, "");
+  state.emails.set(alice, "pending@example.test");
+  state.pendingEmail = null;
+  await w.workoutSocial.refresh();
+  assert.match(app.querySelector(".profile-summary").textContent, /pending@example.test/);
+  assert.doesNotMatch(app.textContent, /In attesa di conferma:/);
+  assert.equal(w.workoutSocial.snapshot().user.id, alice);
+});
+
+test("backend credential policy, duplicate-email, rate-limit and network errors remain explicit", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  for (const message of ["Password too weak", "Email already registered", "Rate limit exceeded", "Network unavailable", "Reauthentication nonce required"]) {
+    state.updateError = new Error(message);
+    const result = message === "Password too weak"
+      ? await w.workoutSocial.updatePassword("long enough", "old secret")
+      : await w.workoutSocial.updateEmail("next@example.test", "old secret");
+    assert.equal(result.ok, false);
+    assert.ok(result.error.includes(message));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await until(() => !w.workoutSocial.snapshot().busy);
+  }
+  assert.match(app.querySelector(".profile-summary").textContent, /alice@example.test/);
+});
+
+test("an expired session prevents reauthentication and updates without discarding the loaded plan", async (t) => {
+  const { w, state } = await openProfile(t);
+  const original = w.workoutLibrary.snapshot().record.id;
+  state.authError = new Error("Session expired");
+  const result = await w.workoutSocial.updatePassword("long enough", "old secret");
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Session expired/);
+  assert.equal(state.authCalls, 0);
+  assert.equal(state.updates.length, 0);
+  assert.equal(w.workoutLibrary.snapshot().record.id, original);
+});
+
+test("duplicate submissions and logout are gated while credentials are being updated", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  let release;
+  state.beforeUpdate = () => new Promise((resolve) => { release = resolve; });
+  const form = profileForm(app, "email", { email: "next@example.test", "current-password": "old secret" });
+  submitForm(w, form);
+  await until(() => Boolean(release));
+  submitForm(w, form);
+  assert.equal(state.updates.length, 1);
+  assert.equal(app.querySelector("#sign-out").disabled, true);
+  await w.workoutSocial.signOut();
+  assert.equal(w.workoutSocial.snapshot().user.id, alice);
+  await w.workoutSocial.refresh();
+  release();
+  await until(() => /Email aggiornata/.test(form.textContent));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(state.updates.length, 1);
+  assert.equal(state.authCalls, 1);
+});
+
+test("an identity switch during verification prevents any credential update", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  let release;
+  state.beforeSession = () => new Promise((resolve) => { release = resolve; });
+  const form = profileForm(app, "email", { email: "next@example.test", "current-password": "old secret" });
+  submitForm(w, form);
+  await until(() => Boolean(release));
+  state.id = bob;
+  state.callback("SIGNED_IN", { user: { id: bob, email: "bob@example.test" } });
+  state.beforeSession = null;
+  release();
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(state.updates.length, 0);
+  assert.equal(form.elements["current-password"].value, "");
+  assert.doesNotMatch(app.textContent, /next@example.test|Email aggiornata/);
+});
+
+test("an identity switch during update discards old-profile feedback and inputs", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  let release;
+  state.beforeUpdate = () => new Promise((resolve) => { release = resolve; });
+  const form = profileForm(app, "email", { email: "alice-new@example.test", "current-password": "old secret" });
+  submitForm(w, form);
+  await until(() => Boolean(release));
+  state.id = bob;
+  state.callback("SIGNED_IN", { user: { id: bob, email: "bob@example.test" } });
+  release();
+  await until(() => !w.workoutSocial.snapshot().busy);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(w.workoutSocial.snapshot().user.id, bob);
+  assert.equal(state.emails.get(bob), "bob@example.test");
+  assert.equal(form.elements["current-password"].value, "");
+  assert.doesNotMatch(app.textContent, /alice-new@example.test|Email aggiornata/);
+});
+
+test("leaving Profile during an update clears secrets and does not inject feedback into another tab", async (t) => {
+  const { w, state, app } = await openProfile(t);
+  let release;
+  state.beforeUpdate = () => new Promise((resolve) => { release = resolve; });
+  const form = profileForm(app, "email", { email: "next@example.test", "current-password": "old secret" });
+  submitForm(w, form);
+  await until(() => Boolean(release));
+  navigate(w, "plan");
+  assert.equal(form.elements["current-password"].value, "");
+  release();
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.doesNotMatch(app.textContent, /Email aggiornata/);
+  assert.equal(w.getActiveView(), "plan");
+});
 test("switching accounts clears Progress history and metrics without exposing the previous owner", async (t) => {
   const { w, state, app } = await mount(t, {
     plans: new Map([[alice, record(alice, "Alice")], [bob, record(bob, "Bob")]]),
@@ -983,7 +1261,7 @@ test("switching accounts clears Progress history and metrics without exposing th
     id: "private", completed_at: "2026-10-24T12:00:00Z", revision: 1, plan_title: "Privato Alice",
     warmup: definition.warmup, session: definition.sessions[0], steps: {}, amrap_rounds: null,
   }];
-  navigate(w, "progress");
+  navigate(w, "profile");
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.match(app.textContent, /Privato Alice/);
   state.history = [];
@@ -993,7 +1271,7 @@ test("switching accounts clears Progress history and metrics without exposing th
   assert.doesNotMatch(app.textContent, /Privato Alice/);
   await until(() => w.workoutSocial.snapshot().accessReady && !w.workoutSocial.snapshot().busy
     && !w.workoutLibrary.snapshot().historyLoading);
-  assert.equal(w.getActiveView(), "progress");
+  assert.equal(w.getActiveView(), "profile");
   assert.doesNotMatch(app.textContent, /Privato Alice/);
   assert.match(app.textContent, /Nessun allenamento sincronizzato/);
 });

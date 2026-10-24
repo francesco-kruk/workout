@@ -259,7 +259,7 @@ function renderPersonalPlan(container) {
     const definition = draft.definition;
     const form = document.createElement("form");
     form.className = "plan-editor social-panel";
-    form.appendChild(textEl("p", "Le modifiche restano sul telefono finché non salvi il piano. Il piano attuale resta disponibile fino al salvataggio. Salvare un piano nuovo o modificato avvia progressi separati; gli allenamenti precedenti restano in Progressi.", "view-description"));
+    form.appendChild(textEl("p", "Le modifiche restano sul telefono finché non salvi il piano. Il piano attuale resta disponibile fino al salvataggio. Salvare un piano nuovo o modificato avvia progressi separati; gli allenamenti precedenti restano in Profilo.", "view-description"));
     form.addEventListener("invalid", (event) => {
       let section = event.target.parentElement;
       while (section && section !== form) {

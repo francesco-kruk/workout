@@ -21,6 +21,7 @@ window.workoutSocial = (() => {
   let membershipRequest = 0;
   let initPromise = null;
   let refreshAgain = false;
+  let updatingCredentials = false;
 
   function notify() {
     window.dispatchEvent(new Event("workout-social-change"));
@@ -257,6 +258,7 @@ window.workoutSocial = (() => {
   }
 
   async function signOut() {
+    if (updatingCredentials) return;
     const previousUser = state.user;
     state.busy = true;
     setIdentity(null);
@@ -275,6 +277,8 @@ window.workoutSocial = (() => {
   }
 
   async function saveName(name) {
+    if (state.busy) return { ok: false, error: "Attendi la fine dell'operazione in corso." };
+    const revision = identityRevision;
     state.busy = true;
     state.error = "";
     notify();
@@ -282,18 +286,83 @@ window.workoutSocial = (() => {
       const trimmed = name.trim();
       if (!trimmed || trimmed.length > 40) throw new Error("Usa un nome da 1 a 40 caratteri.");
       if (!state.member) throw new Error("È richiesta l'approvazione al gruppo.");
-      const revision = identityRevision;
       const member = check(await client.from("friend_members")
         .update({ display_name: trimmed }).eq("user_id", state.user.id)
         .select("user_id,display_name").single());
-      if (revision !== identityRevision) return;
+      if (revision !== identityRevision) return { ok: false, error: "L'account è cambiato. Riapri Profilo." };
       state.member = member;
       await loadLeaderboard();
+      if (revision !== identityRevision) return { ok: false, error: "L'account è cambiato. Riapri Profilo." };
+      return { ok: true, message: "Nome aggiornato." };
     } catch (error) {
-      fail(error, "Nome non salvato.");
+      if (revision === identityRevision) fail(error, "Nome non salvato.");
+      return { ok: false, error: `Nome non salvato. ${error.message || String(error)}` };
     } finally {
       finishBusy();
     }
+  }
+
+  async function updateCredentials(kind, value, currentPassword) {
+    if (state.busy) return { ok: false, error: "Attendi la fine dell'operazione in corso." };
+    const revision = identityRevision;
+    const userId = state.user?.id;
+    const email = state.user?.email;
+    const assertOwner = () => {
+      if (revision !== identityRevision || state.user?.id !== userId) {
+        throw new Error("L'account è cambiato. Riapri Profilo prima di riprovare.");
+      }
+    };
+    state.busy = true;
+    updatingCredentials = true;
+    notify();
+    try {
+      if (!client || !userId || !email || !state.member) throw new Error("Accedi nuovamente al tuo account approvato.");
+      if (!currentPassword) throw new Error("Inserisci la password attuale.");
+      if (kind === "password" && value.length < 8) throw new Error("Scegli una password di almeno 8 caratteri.");
+      if (kind === "email" && (!value || !/^[^\s@]+@[^\s@]+$/.test(value))) throw new Error("Inserisci un indirizzo email valido.");
+      if (kind === "email" && value.toLowerCase() === email.toLowerCase()) throw new Error("Inserisci un'email diversa da quella attuale.");
+      const initial = check(await client.auth.getSession())?.session;
+      assertOwner();
+      if (initial?.user.id !== userId) throw new Error("Sessione scaduta o cambiata. Accedi nuovamente.");
+      const verified = check(await client.auth.signInWithPassword({ email, password: currentPassword }));
+      currentPassword = "";
+      assertOwner();
+      if (verified.session?.user.id !== userId) throw new Error("Impossibile verificare l'account corrente.");
+      const session = check(await client.auth.getSession())?.session;
+      assertOwner();
+      if (session?.user.id !== userId) throw new Error("Sessione scaduta o cambiata. Accedi nuovamente.");
+      const data = check(await client.auth.updateUser({ [kind]: value }));
+      assertOwner();
+      if (data.user?.id !== userId) throw new Error("Risposta dell'account non valida. Aggiorna Profilo.");
+      setIdentity({ user: data.user });
+      if (kind === "email") {
+        const effective = data.user.email;
+        return {
+          ok: true,
+          message: effective?.toLowerCase() === value.toLowerCase()
+            ? "Email aggiornata."
+            : "Modifica email richiesta. Controlla la posta al vecchio e al nuovo indirizzo e completa le conferme richieste. L'email attuale resta valida fino alla conferma.",
+        };
+      }
+      return { ok: true, message: "Password aggiornata." };
+    } catch (error) {
+      const message = `Modifica ${kind === "email" ? "email" : "password"} non riuscita. ${error.message || String(error)}`;
+      console.error("Aggiornamento credenziali non riuscito.", error.message || String(error));
+      return { ok: false, error: message };
+    } finally {
+      currentPassword = "";
+      value = "";
+      updatingCredentials = false;
+      finishBusy();
+    }
+  }
+
+  function updateEmail(email, currentPassword) {
+    return updateCredentials("email", email.trim(), currentPassword);
+  }
+
+  function updatePassword(password, currentPassword) {
+    return updateCredentials("password", password, currentPassword);
   }
 
   function recordCompletion(runId, workout = null) {
@@ -367,6 +436,6 @@ window.workoutSocial = (() => {
     return rows;
   }
 
-  return { init, snapshot, refresh, signIn, signUp, signOut, saveName, recordCompletion, completionMessage, reportError: fail,
+  return { init, snapshot, refresh, signIn, signUp, signOut, saveName, updateEmail, updatePassword, recordCompletion, completionMessage, reportError: fail,
     fetchPersonalPlan, savePersonalPlan, fetchWorkoutHistory };
 })();

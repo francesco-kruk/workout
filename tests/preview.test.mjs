@@ -56,10 +56,36 @@ test("local preview injects a demo adapter without changing the production entry
   click("Nuovo piano");
   assert.ok(app.querySelector(".plan-editor"));
   assert.equal(w.workoutLibrary.getDraft().definition.title, "La mia scheda");
-  w.document.querySelector('[data-view="progress"]').click();
+  w.document.querySelector('[data-view="profile"]').click();
   await w.workoutSocial.refresh();
   assert.equal(app.querySelectorAll(".leaderboard tbody tr").length, 2);
-  assert.match(w.document.querySelector(".app-header").textContent, /Anteprima locale/);
+  assert.match(w.document.querySelector(".preview-banner").textContent, /Anteprima locale/);
+  assert.equal(w.document.querySelector(".app-header").hidden, true);
+  const settle = async () => {
+    for (let attempt = 0; attempt < 100 && w.workoutSocial.snapshot().busy; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.equal(w.workoutSocial.snapshot().busy, false);
+  };
+  await settle();
+  assert.match(app.querySelector(".profile-summary").textContent, /demo@example.test/);
+  const passwordResult = await w.workoutSocial.updatePassword("DemoChanged123!", "Anteprima123!");
+  assert.equal(passwordResult.ok, true);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await settle();
+  const wrongPassword = await w.workoutSocial.updateEmail("updated@example.test", "Anteprima123!");
+  assert.equal(wrongPassword.ok, false);
+  const emailResult = await w.workoutSocial.updateEmail("updated@example.test", "DemoChanged123!");
+  assert.equal(emailResult.ok, true);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await settle();
+  assert.match(app.querySelector(".profile-summary").textContent, /updated@example.test/);
+  assert.doesNotMatch(JSON.stringify(Object.values(w.localStorage)), /DemoChanged123!/);
+  await w.workoutSocial.signOut();
+  assert.equal(app.querySelector("h2").textContent, "Accedi");
+  await w.workoutSocial.signIn("updated@example.test", "DemoChanged123!");
+  await settle();
+  assert.equal(app.querySelector("h2").textContent, "Profilo");
   assert.ok(requests.length > 0);
 });
 

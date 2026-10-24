@@ -3,8 +3,12 @@
 Italian, mobile-friendly workout tracking, hosted as a static site on GitHub Pages.
 Workout progress and timers are saved in the browser. Supabase optionally stores
 each member's private workout plan and completed-workout history, and connects one
-friends group through **Progressi**. Everyone uses the same website; no forks or
+friends group through **Profilo**. Everyone uses the same website; no forks or
 application servers are required.
+
+The interface uses a high-contrast, grayscale training theme: near-black
+backgrounds, charcoal panels, bold headings, and white primary actions. Red is
+reserved for errors; workout states also use text and distinct border/fill styles.
 
 ## Run locally
 
@@ -21,6 +25,9 @@ browser on this local origin. Ranking numbers are illustrative and do not
 recalculate when training. No production data or credentials are used; the
 preview adapter is injected only by this localhost server, not by GitHub Pages.
 The banner identifies preview mode. Use `PORT=8766 npm run preview` for another port.
+The profile shows the demo email; its initial password is `Anteprima123!`.
+Demo email/name edits persist locally, but changed passwords exist only in memory
+and reset on reload. Never enter real credentials in the preview.
 
 To use the real authentication/backend instead, serve this directory normally:
 
@@ -61,7 +68,7 @@ is not supported: there is no service worker.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
    allowed Redirect URL to `https://francesco-kruk.github.io/workout/`, including
    the project path and trailing slash. These settings are retained for legacy
-   invitations/admin email actions; normal sign-in and registration do not use
+   invitations/admin email actions and profile email-change confirmations; normal sign-in and registration do not use
    email links or redirects, including from a phone's home-screen shortcut.
    Never use a broad wildcard for production redirects.
 4. Enable the **Email** authentication provider and **Allow new users to sign up**.
@@ -103,18 +110,42 @@ is not supported: there is no service worker.
    email address and password, or choose **Crea un account** on the first visit.
    Both actions stay in the current window; no email or external browser is needed.
    The app waits for identity, membership, and the private plan before opening
-   the three tabs: **Piano**, **Allenamento**, and **Progressi**. New members without a plan land directly on **Piano** to
-   create/import and save one. **Progressi** shows standings and display-name
-   settings, not the login form. An authenticated but unapproved account sees
+   the three tabs: **Piano**, **Allenamento**, and **Profilo**. New members without a plan land directly on **Piano** to
+   create/import and save one. **Profilo** shows account settings, progress,
+   standings, and private history, not the login form. An authenticated but unapproved account sees
    only an access-pending screen with retry and sign-out controls.
 
-**Esci** is available in the header on every signed-in screen. It immediately
+Signed-in tabs omit the shared app-title header; only actionable account/offline
+notices appear above their content. **Esci** is available in **Profilo**, with a
+separate exit control on access-pending and recovery screens. It immediately
 hides the account's plan/history and stops active timers, returning to **Accedi**
 without showing the example or another account's data. Local drafts, progress,
 and pending completions remain isolated for the next sign-in by their owner.
 If access or initial plan loading fails, an explicit recovery screen allows
 retrying instead of opening an example or treating the failure as a missing plan.
 An already-loaded, approved account can keep training during an outage.
+
+### Profile and account settings
+
+**Profilo** shows the current display name and effective email. Expand **Nome
+visualizzato**, **Modifica email**, or **Modifica password** to edit one setting
+at a time. Names use the existing 1–40 character limit and update the ranking.
+Email/password changes require the current password; a new password also requires
+matching confirmation and at least eight characters. Supabase may enforce stronger
+password policies. Passwords are never saved in app drafts or browser storage.
+Changes preserve the same Auth UUID, approved membership, private plan, and history.
+
+Email changes use Supabase Auth, not the leaderboard table. Depending on the hosted
+email settings, they may take effect immediately or require confirmation links at
+the old and/or new address. The profile distinguishes the effective email from a
+pending address and shows confirmation instructions; it does not treat a request
+as a confirmed change. Reopen/refresh Profilo after completing the confirmations.
+Configure the canonical Site URL/allowed return URL above and functioning email
+delivery (including custom SMTP where required) for confirmation messages. These
+hosted settings are separate from the password-only login flow. The app does not
+disable email-change protections; delivery failures, rate limits, or additional
+provider verification requirements are shown explicitly for retry/admin help.
+Signup, forgotten-password recovery, and approval rules remain unchanged.
 
 ### Existing email-link accounts and forgotten passwords
 
@@ -143,7 +174,7 @@ Removing membership also cascades their private plans and completed history.
 completo** for a compact, expandable overview. This is a training cycle, not a
 calendar schedule. Inspecting another day does not change the active training
 day or its progress. **Allenamento** remains the step-by-step training screen.
-**Progressi** combines current-device workout completion, synchronized monthly
+**Profilo > Progressi** combines current-device workout completion, synchronized monthly
 training days/points, streak/multiplier, private history, and the friends ranking.
 Local pending results are labeled separately from synchronized scores and history.
 
@@ -184,7 +215,7 @@ There is one current plan per user, with immutable prior versions:
   training-day ID, completion time, each step's completed/skipped status, and
   AMRAP rounds. Several workouts on the same date appear separately in history
   but earn daily leaderboard credit only once.
-- **History:** **Progressi > Storico privato** displays private completed workouts, with
+- **History:** **Profilo > Storico privato** displays private completed workouts, with
   original exercise targets/definitions, step results, and AMRAP rounds.
   **Carica precedenti** loads older results in pages of 20. We do not invent
   actual weights/repetitions: the current training UI records step completion
