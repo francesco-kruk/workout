@@ -195,11 +195,25 @@ window.workoutLibrary = (() => {
   function completionDetails(plan, summary, session) {
     const record = state.record;
     if (!record || record.definition !== plan) return null;
+    const measurements = {};
+    for (const step of summary.steps) {
+      if (step.type !== "set" || summary.progress.steps[step.key] !== "completed") continue;
+      const value = parseSetResult(summary.progress.results[step.key]);
+      if (Object.keys(value).length) measurements[step.key] = value;
+    }
+    const extra = summary.progress.amrap.extraReps;
+    const extraReps = extra === "" || extra === undefined ? null : Number(extra);
+    if (session.type === "amrap" && extraReps !== null
+      && (!Number.isInteger(extraReps) || extraReps < 0 || extraReps > 100000)) {
+      throw new Error("Ripetizioni extra: inserisci un intero da 0 a 100000.");
+    }
     return {
       planVersionId: record.id,
       sessionId: session.id,
       steps: Object.fromEntries(summary.steps.map((step) => [step.key, summary.progress.steps[step.key]])),
       amrapRounds: session.type === "amrap" ? summary.progress.amrap.rounds : null,
+      measurements,
+      amrapExtraReps: session.type === "amrap" ? extraReps : null,
     };
   }
 

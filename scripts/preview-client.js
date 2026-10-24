@@ -12,18 +12,47 @@
   const persist = () => localStorage.setItem(key, JSON.stringify(database));
   const member = () => ({ user_id: userId, display_name: database.name });
   const session = () => signedIn ? { user: { id: userId, email: database.email } } : null;
-  const friendId = "00000000-0000-4000-8000-000000000002";
-  const thirdId = "00000000-0000-4000-8000-000000000003";
-  function calendar() {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit",
-    }).formatToParts(new Date());
-    const part = (type) => parts.find((item) => item.type === type).value;
-    const date = new Date(`${part("year")}-${part("month")}-${part("day")}T12:00:00Z`);
-    date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
-    const week_start = date.toISOString().slice(0, 10);
-    date.setUTCDate(date.getUTCDate() + 7);
-    return { week_start, settles_on: date.toISOString().slice(0, 10), month: `${part("year")}-${part("month")}-01` };
+  const dateLabel = (date) => new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(date);
+  function seriesKey(plan, day, exercise = null) {
+    const identity = JSON.stringify([plan.trackingId || "legacy", day.type, exercise
+      ? [exercise.id, exercise.name, exercise.instructions || ""]
+      : [day.id, parseInt(day.duration, 10), day.instructions || "",
+        day.exercises.map((e) => [e.id, e.name, e.target, e.instructions || ""])]]);
+    database.seriesKeys ||= {};
+    if (!database.seriesKeys[identity]) database.seriesKeys[identity] = crypto.randomUUID().replaceAll("-", "");
+    return database.seriesKeys[identity];
+  }
+  function entries() {
+    return database.history.flatMap((row) => {
+      const plan = database.plans.find((p) => p.id === row.plan_version_id)?.definition;
+      if (!plan) throw new Error("Definizione storica di anteprima non disponibile.");
+      const day = row.session;
+      if (day.type === "amrap") return [{
+        id: row.id, completed_at: row.completed_at, series_key: seriesKey(plan, day),
+        name: day.subtitle || day.label, context: day.duration, kind: "amrap",
+        sets: [], rounds: row.amrap_rounds, extra_reps: row.amrap_extra_reps ?? null,
+        max_weight: null, max_reps: null, max_seconds: null,
+      }];
+      return day.exercises.flatMap((e) => {
+        const sets = Array.from({ length: e.sets + (e.optionalSets || 0) }, (_, index) => {
+          const value = row.measurements?.[`${e.id}:${index}`];
+          return value ? { set: index + 1, ...value } : null;
+        }).filter(Boolean);
+        if (!sets.length) return [];
+        const max = (key) => {
+          const values = sets.map((s) => s[key]).filter((v) => v != null);
+          return values.length ? Math.max(...values) : null;
+        };
+        return [{
+          id: row.id, completed_at: row.completed_at, series_key: seriesKey(plan, day, e),
+          name: e.name, context: day.label, kind: "standard", sets,
+          rounds: null, extra_reps: null,
+          max_weight: max("weightKg"), max_reps: max("reps"), max_seconds: max("seconds"),
+        }];
+      });
+    }).sort((a, b) => b.completed_at.localeCompare(a.completed_at) || b.id.localeCompare(a.id));
   }
 
   const banner = textEl("p", "Anteprima locale · account e classifica dimostrativi. Modifiche salvate solo in questo browser; nessun dato inviato al server. Password demo iniziale: Anteprima123! (ripristinata al ricaricamento). Non usare credenziali reali.", "social-panel preview-banner");
@@ -35,28 +64,32 @@
     if (saved) database = JSON.parse(saved);
     else {
       const definition = await loadPlan();
-      database = {
-        name: "Tu", email: "demo@example.test", history: [],
-        plans: [{ id: crypto.randomUUID(), user_id: userId, revision: 1, created_at: new Date().toISOString(), definition }],
-      };
+      definition.trackingId = "demo-plan";
+      const created = new Date(Date.now() - 30 * 86400000).toISOString();
+      const plan = { id: crypto.randomUUID(), user_id: userId, revision: 1, created_at: created, definition };
+      database = { name: "Tu", email: "demo@example.test", history: [], plans: [plan] };
+      for (const [index, age] of [21, 14, 7].entries()) {
+        for (const day of [definition.sessions.find((d) => d.type === "standard"), definition.sessions.find((d) => d.type === "amrap")].filter(Boolean)) {
+          const measurements = {};
+          if (day.type === "standard") day.exercises.slice(0, 2).forEach((e, exerciseIndex) => {
+            for (let set = 0; set < e.sets; set += 1) {
+              measurements[`${e.id}:${set}`] = exerciseIndex === 0
+                ? { seconds: 15 + index * 5 } : { weightKg: 20 + index * 2, reps: 8 };
+            }
+          });
+          database.history.push({
+            id: crypto.randomUUID(), plan_version_id: plan.id,
+            completed_at: new Date(Date.now() - age * 86400000).toISOString(),
+            revision: 1, plan_title: definition.title, warmup: definition.warmup, session: day,
+            steps: Object.fromEntries(getWorkoutSteps(definition, day).map((s) => [s.key, "completed"])),
+            measurements, amrap_rounds: day.type === "amrap" ? 3 + index : null,
+            amrap_extra_reps: day.type === "amrap" ? 2 + index : null,
+          });
+        }
+      }
       persist();
     }
     database.email ||= "demo@example.test";
-    if (!database.objectives) {
-      const week = calendar();
-      database.objectives = {
-        cutover: week.week_start,
-        proposals: [{
-          id: crypto.randomUUID(), user_id: friendId, display_name: "Amico demo",
-          rules: { count: { days: 3, bonus: 0.5 }, schedule: { days: [1, 6, 7], bonus: 0.5 } },
-          electorate: [userId, thirdId], voter_names: { [userId]: database.name, [thirdId]: "Amica demo" },
-          required_approvals: 2, status: "pending", effective_from: null,
-          created_at: new Date().toISOString(),
-          votes: [{ voter_id: thirdId, approve: true, created_at: new Date().toISOString() }],
-        }],
-      };
-      persist();
-    }
     const client = {
       auth: {
         getSession: async () => ok({ session: session() }),
@@ -105,75 +138,23 @@
       rpc: async (name, args = {}) => {
         if (!signedIn) throw new Error("Accedi all'anteprima.");
         if (name === "friends_leaderboard") {
-          const week = calendar();
+          const today = dateLabel(new Date());
+          const monday = new Date(`${today}T12:00:00Z`);
+          monday.setUTCDate(monday.getUTCDate() - (monday.getUTCDay() + 6) % 7);
           return ok([
-            { user_id: friendId, display_name: "Amico demo", points: 50, gym_days: 5, position: 1 },
-            { user_id: userId, display_name: database.name, points: 30, gym_days: 3, position: 2 },
-            { user_id: thirdId, display_name: "Amica demo", points: 20, gym_days: 2, position: 3 },
-          ].map((row) => ({
-            ...row, month_start: week.month, week_start: week.week_start, settles_on: week.settles_on,
-            cutover: database.objectives.cutover, weekly_streak: 1, settled_multiplier: 1,
-            week_days: [1], pending_bonus: 0, current_bonuses: { streak: 0, count: 0, schedule: 0 },
-            current_streak: 0, multiplier: 1,
-          })));
-        }
-        if (name === "ranking_objectives") {
-          return ok(structuredClone({ ...database.objectives, ...calendar() }));
-        }
-        if (name === "propose_ranking_objectives") {
-          const error = validateRankingObjectives(args.p_rules);
-          if (error) throw new Error(error);
-          const existing = database.objectives.proposals.find((p) => p.id === args.p_id);
-          if (existing) {
-            if (existing.user_id === userId && JSON.stringify(existing.rules) === JSON.stringify(args.p_rules)) return ok(existing.id);
-            throw new Error("Identificativo proposta già usato.");
-          }
-          if (database.objectives.proposals.some((p) => p.user_id === userId &&
-            (p.status === "pending" || p.status === "approved" && p.effective_from > calendar().week_start))) {
-            throw new Error("Hai già una proposta in attesa o approvata per la prossima settimana.");
-          }
-          database.objectives.proposals.unshift({
-            id: args.p_id, user_id: userId, display_name: database.name, rules: structuredClone(args.p_rules),
-            electorate: [friendId, thirdId], voter_names: { [friendId]: "Amico demo", [thirdId]: "Amica demo" },
-            required_approvals: 2, status: "pending", effective_from: null,
-            created_at: new Date().toISOString(), votes: [],
-          });
-          persist();
-          return ok(args.p_id);
-        }
-        if (name === "vote_ranking_objectives" || name === "withdraw_ranking_objectives") {
-          const proposal = database.objectives.proposals.find((p) => p.id === args.p_id);
-          if (!proposal) throw new Error("Proposta non trovata.");
-          if (name === "withdraw_ranking_objectives") {
-            if (proposal.user_id !== userId) throw new Error("Solo il proponente può ritirare.");
-            if (proposal.status === "withdrawn") return ok("withdrawn");
-            if (proposal.status !== "pending") throw new Error("La proposta non è più in votazione.");
-            proposal.status = "withdrawn";
-          } else {
-            if (!proposal.electorate.includes(userId)) throw new Error("Non puoi votare questa proposta.");
-            const previous = proposal.votes.find((vote) => vote.voter_id === userId);
-            if (previous) {
-              if (previous.approve === args.p_approve) return ok(proposal.status);
-              throw new Error("Il voto non è modificabile.");
-            }
-            if (proposal.status !== "pending") throw new Error("La proposta non è più in votazione.");
-            proposal.votes.push({ voter_id: userId, approve: args.p_approve, created_at: new Date().toISOString() });
-            const approvals = proposal.votes.filter((vote) => vote.approve).length;
-            const rejections = proposal.votes.filter((vote) => !vote.approve).length;
-            if (approvals >= proposal.required_approvals) {
-              proposal.status = "approved";
-              proposal.effective_from = calendar().settles_on;
-            } else if (proposal.electorate.length - rejections < proposal.required_approvals) proposal.status = "rejected";
-          }
-          proposal.decided_at = proposal.status === "pending" ? null : new Date().toISOString();
-          persist();
-          return ok(proposal.status);
+            { user_id: "00000000-0000-4000-8000-000000000002", display_name: "Amico demo", points: 50, gym_days: 4, position: 1, weekly_streak: 2, multiplier: 1.25 },
+            { user_id: userId, display_name: database.name, points: 37.5, gym_days: 3, position: 2, weekly_streak: 3, multiplier: 1.5 },
+            { user_id: "00000000-0000-4000-8000-000000000003", display_name: "Amica demo", points: 20, gym_days: 2, position: 3, weekly_streak: 1, multiplier: 1 },
+          ].map((row) => ({ ...row, month_start: `${today.slice(0, 7)}-01`, week_start: monday.toISOString().slice(0, 10), starts_on: today })));
         }
         if (name === "save_workout_plan") {
           const errors = validateWorkoutPlan(args.p_definition);
-          if (errors.length) return { data: null, error: new Error(errors.join("\n")) };
-          if (args.p_base_version_id !== (database.plans.at(-1)?.id || null)) {
-            return { data: null, error: new Error("Il piano è cambiato. Ricarica l'anteprima prima di salvare.") };
+          if (errors.length) throw new Error(errors.join("\n"));
+          const existing = database.plans.find((p) => p.id === args.p_version_id);
+          if (existing && existing === database.plans.at(-1)
+            && JSON.stringify(existing.definition) === JSON.stringify(args.p_definition)) return ok(existing);
+          if (existing || args.p_base_version_id !== (database.plans.at(-1)?.id || null)) {
+            throw new Error("Il piano è cambiato. Ricarica l'anteprima prima di salvare.");
           }
           const record = {
             id: args.p_version_id, user_id: userId, revision: database.plans.length + 1,
@@ -184,7 +165,7 @@
           return ok(record);
         }
         if (name === "submit_workout_result") {
-          const plan = database.plans.find((record) => record.id === args.p_plan_version_id);
+          const plan = database.plans.find((p) => p.id === args.p_plan_version_id);
           const day = plan?.definition.sessions.find((item) => item.id === args.p_session_id);
           if (!plan || !day) throw new Error("Piano di anteprima non disponibile.");
           if (!database.history.some((result) => result.id === args.p_event_id)) {
@@ -192,6 +173,7 @@
               id: args.p_event_id, completed_at: args.p_completed_at, plan_version_id: plan.id,
               revision: plan.revision, plan_title: plan.definition.title, warmup: plan.definition.warmup,
               session: day, steps: args.p_steps, amrap_rounds: args.p_amrap_rounds,
+              measurements: args.p_measurements || {}, amrap_extra_reps: args.p_amrap_extra_reps ?? null,
             });
             persist();
           }
@@ -201,6 +183,38 @@
           const rows = [...database.history].sort((a, b) => b.completed_at.localeCompare(a.completed_at) || b.id.localeCompare(a.id));
           const cursor = args.p_before_id ? rows.findIndex((row) => row.id === args.p_before_id) + 1 : 0;
           return ok(rows.slice(cursor, cursor + 20));
+        }
+        if (name === "workout_previous") {
+          const plan = database.plans.find((p) => p.id === args.p_plan_version_id)?.definition;
+          const day = plan?.sessions.find((d) => d.id === args.p_session_id);
+          if (!day) throw new Error("Piano di anteprima non disponibile.");
+          const e = args.p_exercise_id ? day.exercises.find((e) => e.id === args.p_exercise_id) : null;
+          const target = seriesKey(plan, day, e);
+          const result = entries().find((e) => e.series_key === target) || null;
+          persist();
+          return ok(result);
+        }
+        if (name === "workout_performance") {
+          const all = entries();
+          const groups = new Map();
+          for (const entry of all) {
+            if (!groups.has(entry.series_key)) groups.set(entry.series_key, []);
+            groups.get(entry.series_key).push(entry);
+          }
+          const max = (rows, key) => {
+            const values = rows.map((r) => r[key]).filter((v) => v != null);
+            return values.length ? Math.max(...values) : null;
+          };
+          const series = [...groups].map(([series_key, rows]) => ({
+            series_key, name: rows[0].name, kind: rows[0].kind, context: rows[0].context, workouts: rows.length,
+            best_weight: max(rows, "max_weight"), best_reps: max(rows, "max_reps"), best_seconds: max(rows, "max_seconds"),
+            best_amrap: [...rows].sort((a, b) => b.rounds - a.rounds || (b.extra_reps || 0) - (a.extra_reps || 0))[0],
+          })).sort((a, b) => a.name.localeCompare(b.name) || a.series_key.localeCompare(b.series_key));
+          const target = args.p_series || series[0]?.series_key;
+          const rows = all.filter((e) => e.series_key === target);
+          const cursor = args.p_before_id ? rows.findIndex((row) => row.id === args.p_before_id) + 1 : 0;
+          persist();
+          return ok({ series, results: rows.slice(cursor, cursor + 20), more: rows.length > cursor + 20 });
         }
         throw new Error(`Unsupported preview RPC: ${name}`);
       },

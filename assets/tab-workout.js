@@ -1,6 +1,7 @@
 function renderWorkout(container, plan, onSessionAdvanced) {
   let timerId = null;
   let timerCleanup = null;
+  let active = true;
   function updateSocialStatus() {
     const status = container.querySelector("[data-social-status]");
     if (status) {
@@ -197,7 +198,114 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         textEl("p", step.exercise.instructions, "focus-instructions")
       );
     }
+    const sessionId = getCurrentSessionId(plan);
+    const stored = getProgress(sessionId);
+    const values = { mode: "reps", ...stored.results[step.key] };
+    const fields = document.createElement("fieldset");
+    fields.className = "actual-results";
+    fields.appendChild(textEl("legend", "Risultato effettivo (facoltativo)"));
+    const error = textEl("p", "", "social-status error");
+    error.dataset.measurementError = "";
+    error.setAttribute("role", "alert");
+    const modeLabel = textEl("label", "Misura");
+    const mode = document.createElement("select");
+    mode.setAttribute("aria-label", "Misura effettiva");
+    for (const [value, label] of [["reps", "Ripetizioni"], ["seconds", "Durata (secondi)"]]) {
+      const option = textEl("option", label);
+      option.value = value;
+      option.selected = values.mode === value;
+      mode.appendChild(option);
+    }
+    modeLabel.appendChild(mode);
+    fields.appendChild(modeLabel);
+    const inputs = document.createElement("div");
+    inputs.className = "measurement-inputs";
+    function persist() {
+      try {
+        updateSetResult(sessionId, step.key, values);
+        error.textContent = "";
+      } catch (failure) {
+        console.error("Salvataggio risultato locale non riuscito.", failure);
+        error.textContent = `Risultato non salvato. ${failure.message}`;
+      }
+    }
+    function renderInputs() {
+      inputs.replaceChildren();
+      for (const [key, label, max, increment] of [
+        ["weightKg", "Peso (kg)", 2000, "0.01"],
+        [values.mode, values.mode === "seconds" ? "Durata (secondi)" : "Ripetizioni", values.mode === "seconds" ? 86400 : 100000, "1"],
+      ]) {
+        const wrapper = textEl("label", label);
+        const input = document.createElement("input");
+        input.type = "number";
+        input.min = "0";
+        input.max = String(max);
+        input.step = increment;
+        input.inputMode = key === "weightKg" ? "decimal" : "numeric";
+        input.value = values[key] ?? "";
+        input.dataset.actualField = key;
+        input.addEventListener("input", () => { values[key] = input.value; persist(); });
+        wrapper.appendChild(input);
+        inputs.appendChild(wrapper);
+      }
+    }
+    mode.addEventListener("change", () => {
+      values.mode = mode.value;
+      persist();
+      renderInputs();
+    });
+    renderInputs();
+    fields.append(inputs, error);
+    if (hasRecordedWorkout(stored.runId)) {
+      fields.disabled = true;
+      fields.appendChild(textEl("p", "Risultato di questo allenamento già salvato, in sola lettura.", "view-description"));
+    }
+    card.appendChild(fields);
+    appendPrevious(card, sessionId, step.exercise.id, step.setNumber);
     return card;
+  }
+
+  function appendPrevious(card, sessionId, exerciseId = null, setNumber = null) {
+    const library = window.workoutLibrary?.snapshot();
+    if (!library?.record || library.plan !== plan) return;
+    const ownerId = library.userId;
+    const reference = textEl("p", "Ultima volta: caricamento...", "previous-result view-description");
+    card.appendChild(reference);
+    window.workoutSocial.fetchPrevious(sessionId, exerciseId).then((result) => {
+      if (!active || !card.isConnected || window.workoutLibrary.snapshot().userId !== ownerId) return;
+      const value = exerciseId ? result?.sets?.find((item) => item.set === setNumber) : null;
+      reference.textContent = result
+        ? `Ultima volta (${new Date(result.completed_at).toLocaleDateString("it-IT", { timeZone: "Europe/Rome" })}): ${
+          exerciseId ? formatActualResult(value) : formatAmrapResult(result.rounds, result.extra_reps)
+        }. Solo riferimento.`
+        : "Ultima volta: nessun risultato confrontabile registrato.";
+    }).catch((failure) => {
+      if (!active || !card.isConnected || window.workoutLibrary.snapshot().userId !== ownerId) return;
+      console.error("Ultimo risultato non disponibile.", failure);
+      reference.textContent = `Ultimo risultato non disponibile. ${failure.message} Puoi continuare ad allenarti.`;
+    });
+  }
+
+  function validateActualInputs() {
+    const error = container.querySelector("[data-measurement-error]");
+    try {
+      for (const input of container.querySelectorAll("[data-actual-field]")) {
+        if (!input.checkValidity()) {
+          input.reportValidity();
+          throw new Error("Controlla i valori inseriti: usa numeri nei limiti indicati.");
+        }
+      }
+      const sessionId = getCurrentSessionId(plan);
+      const summary = getSessionSummary(plan, plan.sessions.find((day) => day.id === sessionId));
+      const step = summary.steps[summary.currentIndex];
+      if (step?.type === "set") parseSetResult(summary.progress.results[step.key]);
+      if (error?.textContent) throw new Error(error.textContent);
+      return true;
+    } catch (failure) {
+      console.error("Risultato non valido.", failure);
+      if (error) error.textContent = failure.message;
+      return false;
+    }
   }
 
   function renderRestTimer(sessionId, initialTimer) {
@@ -322,6 +430,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       "btn btn-primary"
     );
     complete.addEventListener("click", () => {
+      if (step.type === "set" && !validateActualInputs()) return;
       const sessionId = getCurrentSessionId(plan);
       applyWorkoutProgress(plan, sessionId, () => {
         setStepStatus(sessionId, step.key, "completed");
@@ -393,20 +502,47 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     decrement.disabled = rounds === 0;
     const increment = createButton("+", "btn btn-icon");
     increment.setAttribute("aria-label", "Aggiungi un giro");
+    increment.disabled = rounds >= 100000;
     decrement.addEventListener("click", () => {
       rounds = Math.max(0, rounds - 1);
       updateAmrap(session.id, { rounds });
       roundsLabel.textContent = String(rounds);
       decrement.disabled = rounds === 0;
+      increment.disabled = false;
     });
     increment.addEventListener("click", () => {
       rounds += 1;
       updateAmrap(session.id, { rounds });
       roundsLabel.textContent = String(rounds);
       decrement.disabled = false;
+      increment.disabled = rounds >= 100000;
     });
     roundsControl.append(decrement, roundsLabel, roundsText, increment);
     card.appendChild(roundsControl);
+    const extraLabel = textEl("label", "Ripetizioni extra (facoltative)");
+    const extra = document.createElement("input");
+    extra.type = "number";
+    extra.min = "0";
+    extra.max = "100000";
+    extra.step = "1";
+    extra.inputMode = "numeric";
+    extra.value = progress.amrap.extraReps;
+    extra.dataset.actualField = "extraReps";
+    const resultError = textEl("p", "", "social-status error");
+    resultError.dataset.measurementError = "";
+    resultError.setAttribute("role", "alert");
+    extra.addEventListener("input", () => {
+      try {
+        updateAmrap(session.id, { extraReps: extra.value });
+        resultError.textContent = "";
+      } catch (failure) {
+        console.error("Salvataggio ripetizioni extra non riuscito.", failure);
+        resultError.textContent = `Risultato non salvato. ${failure.message}`;
+      }
+    });
+    extraLabel.appendChild(extra);
+    card.append(extraLabel, textEl("p", "Totale delle ripetizioni svolte dopo l'ultimo giro completo.", "view-description"), resultError);
+    appendPrevious(card, session.id);
 
     const controls = document.createElement("div");
     controls.className = "timer-controls";
@@ -467,10 +603,13 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       updateAmrap(session.id, {
         remainingMilliseconds,
         rounds,
+        extraReps: "",
         completed: false,
       });
       roundsLabel.textContent = "0";
+      extra.value = "";
       decrement.disabled = true;
+      increment.disabled = false;
       updateTimerUi();
     });
     controls.append(reset, toggle);
@@ -490,6 +629,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     const complete = createButton("Completa AMRAP", "btn btn-primary");
     complete.disabled = remainingMilliseconds !== 0;
     complete.addEventListener("click", () => {
+      if (!validateActualInputs()) return;
       applyWorkoutProgress(plan, session.id, () => {
         updateAmrap(session.id, { completed: true });
         setStepStatus(session.id, step.key, "completed");
@@ -499,6 +639,10 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     actions.appendChild(complete);
     card.appendChild(actions);
     updateTimerUi();
+    if (hasRecordedWorkout(progress.runId)) {
+      extra.disabled = increment.disabled = decrement.disabled = reset.disabled = true;
+      card.appendChild(textEl("p", "Risultato di questo allenamento già salvato, in sola lettura.", "view-description"));
+    }
     return card;
   }
 
@@ -511,7 +655,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       textEl(
         "p",
         session.type === "amrap"
-          ? `Hai completato ${summary.progress.amrap.rounds} giri.`
+          ? `Hai completato ${formatAmrapResult(summary.progress.amrap.rounds, summary.progress.amrap.extraReps)}.`
           : `${summary.completedRequired} attività obbligatorie completate.`,
         "view-description"
       )
@@ -554,6 +698,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
 
   renderCurrent();
   return () => {
+    active = false;
     stopTimer();
     window.removeEventListener("workout-social-change", updateSocialStatus);
   };

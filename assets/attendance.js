@@ -65,6 +65,10 @@ function acknowledgeAttendance(eventId, userId) {
   localStorage.setItem(`${ATTENDANCE_KEY}${runId}`, JSON.stringify(receipt));
 }
 
+function hasRecordedWorkout(runId) {
+  return Boolean(runId && localStorage.getItem(`${ATTENDANCE_KEY}${runId}`));
+}
+
 function applyWorkoutProgress(plan, sessionId, update) {
   const wasComplete = getSessionSummary(
     plan, plan.sessions.find((session) => session.id === sessionId)

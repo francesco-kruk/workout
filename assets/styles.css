@@ -966,8 +966,7 @@ body:not(.auth-entry) main {
   margin: 4px 0;
 }
 
-.objective-form fieldset,
-.objective-card {
+.actual-results {
   min-width: 0;
   margin: 16px 0;
   padding: 12px;
@@ -976,35 +975,76 @@ body:not(.auth-entry) main {
   overflow-wrap: anywhere;
 }
 
-.objective-form label:has(input[type="checkbox"]) {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 44px;
-}
-
-.objective-form input[type="checkbox"] {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  accent-color: var(--accent);
-}
-
-.objective-form legend {
+.actual-results legend {
   max-width: 100%;
   padding: 0 4px;
   font-weight: 800;
 }
 
-.objective-fields {
+.measurement-inputs {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 0 16px;
 }
 
-.objective-fields > p {
-  grid-column: 1 / -1;
+.actual-results label,
+.personal-performance label,
+.amrap-focus > label {
+  display: block;
+  margin: 12px 0;
+  font-weight: 700;
+}
+
+.actual-results input,
+.actual-results select,
+.personal-performance select,
+.amrap-focus > label input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+.actual-results:disabled {
+  opacity: 0.75;
+}
+
+.performance-chart {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  margin: 16px 0;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.performance-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.performance-table th,
+.performance-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.performance-table caption {
+  text-align: left;
+  color: var(--text-muted);
+  padding: 12px 0;
+}
+
+.performance-comparison {
+  padding-left: 12px;
+  border-left: 2px solid var(--text);
 }
 
 .plan-switch {

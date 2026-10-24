@@ -130,7 +130,7 @@ function renderPersonalPlan(container) {
         button("Crea scheda", () => begin(newWorkoutPlan()), "btn btn-primary"),
         button("Personalizza esempio", () => {
           const template = library.template();
-          if (template) begin(template);
+          if (template) begin({ ...template, trackingId: crypto.randomUUID() });
           else showError(new Error("Scheda di esempio non disponibile."));
         })
       );
@@ -247,7 +247,7 @@ function renderPersonalPlan(container) {
         assertOwner();
         const errors = validateWorkoutPlan(definition);
         if (errors.length) throw new Error(errors.join("\n"));
-        begin(definition);
+        begin({ ...definition, trackingId: crypto.randomUUID() });
       } catch (error) { if (active) showError(error); }
     });
     label.appendChild(input);
@@ -403,5 +403,5 @@ function newWorkoutDay() {
   return { id: `day-${crypto.randomUUID()}`, label: "", type: "standard", instructions: "", exercises: [newWorkoutExercise()] };
 }
 function newWorkoutPlan() {
-  return { version: 2, title: "La mia scheda", warmup: [newWorkoutItem()], sessions: [newWorkoutDay()] };
+  return { version: 2, trackingId: crypto.randomUUID(), title: "La mia scheda", warmup: [newWorkoutItem()], sessions: [newWorkoutDay()] };
 }
