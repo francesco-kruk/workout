@@ -94,9 +94,10 @@ is not supported: there is no service worker.
    It converts existing rest strings to numbers and intervals to their upper
    bounds (for example, `"60-90 secondi"` becomes `90`). Only rest metadata is
    changed: plan/version IDs, revisions, recorded results, and attendance are
-   preserved. The five bundled `core-*` exercises that explicitly used `""` for
-   no recovery are converted to `0`, including in old caches and drafts.
-   The migration aborts atomically if any other stored plan has missing or
+   preserved. Legacy blank rest strings (including whitespace) are converted to
+   `0`, preserving their previous no-recovery behavior in bundled and user-created
+   plans, old caches, and drafts. New saves/imports still require explicit numbers.
+   The migration aborts atomically if any stored plan has missing or
    unconvertible rest; correct those definitions explicitly before retrying.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
    allowed Redirect URL to `https://francesco-kruk.github.io/workout/`, including

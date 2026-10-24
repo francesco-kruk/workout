@@ -91,9 +91,7 @@ function normalizeStoredWorkoutRest(plan) {
     if (!Array.isArray(day?.exercises)) continue;
     for (const exercise of day.exercises) {
       if (typeof exercise?.rest !== "string") continue;
-      if (day.type === "standard" && exercise.rest === ""
-        && ["core-barchetta", "core-pallina-bastone", "core-raises-barchetta",
-          "core-crunch-farfalla", "core-cardio"].includes(exercise.id)) {
+      if (day.type === "standard" && !exercise.rest.trim()) {
         exercise.rest = 0;
         changed = true;
         continue;

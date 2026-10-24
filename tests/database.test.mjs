@@ -7,16 +7,16 @@ import { JSDOM } from "jsdom";
 import { createRequire } from "node:module";
 const { validateWorkoutPlan, normalizeStoredWorkoutRest } = createRequire(import.meta.url)("../assets/plan-validation.js");
 
-test("legacy bundled blank rest upgrades only the five known no-recovery exercises", () => {
+test("legacy blank rest preserves no-recovery behavior without inventing missing values", () => {
   const ids = ["core-barchetta", "core-pallina-bastone", "core-raises-barchetta",
     "core-crunch-farfalla", "core-cardio"];
   const stored = { sessions: [{ type: "standard", exercises: [
     ...ids.map((id) => ({ id, rest: "" })),
-    { id: "other", rest: "" }, { id: "core-barchetta" },
+    { id: "other", rest: "" }, { id: "custom", rest: " \t\n" }, { id: "core-barchetta" },
     { id: "core-cardio", rest: "30-60 secondi" },
   ] }] };
   assert.equal(normalizeStoredWorkoutRest(stored), true);
-  assert.deepEqual(stored.sessions[0].exercises.map((e) => e.rest), [0, 0, 0, 0, 0, "", undefined, 60]);
+  assert.deepEqual(stored.sessions[0].exercises.map((e) => e.rest), [0, 0, 0, 0, 0, 0, 0, undefined, 60]);
   assert.equal(normalizeStoredWorkoutRest(stored), false);
 });
 
