@@ -11,6 +11,8 @@ window.workoutSocial = (() => {
     user: null,
     member: null,
     rows: [],
+    objectives: null,
+    objectivesError: "",
     updatedAt: null,
     error: "",
     notice: "",
@@ -19,6 +21,8 @@ window.workoutSocial = (() => {
   let syncing = false;
   let identityRevision = 0;
   let membershipRequest = 0;
+  let leaderboardRequest = 0;
+  let objectivesRequest = 0;
   let initPromise = null;
   let refreshAgain = false;
   let updatingCredentials = false;
@@ -43,7 +47,7 @@ window.workoutSocial = (() => {
   }
 
   function snapshot() {
-    return { ...state, rows: [...state.rows] };
+    return { ...state, rows: [...state.rows], objectives: state.objectives ? JSON.parse(JSON.stringify(state.objectives)) : null };
   }
 
   function check(result) {
@@ -57,6 +61,8 @@ window.workoutSocial = (() => {
       identityRevision += 1;
       state.member = null;
       state.rows = [];
+      state.objectives = null;
+      state.objectivesError = "";
       state.updatedAt = null;
       state.accessReady = false;
       state.error = "";
@@ -76,17 +82,83 @@ window.workoutSocial = (() => {
       .select("user_id,display_name").eq("user_id", userId).maybeSingle());
     if (revision !== identityRevision || request !== membershipRequest) return;
     state.member = member;
+    if (!member) {
+      state.rows = [];
+      state.objectives = null;
+      state.objectivesError = "";
+    }
     notify();
   }
 
   async function loadLeaderboard() {
     if (!client || !state.member) return;
     const revision = identityRevision;
+    const request = ++leaderboardRequest;
     const rows = check(await client.rpc("friends_leaderboard"));
-    if (revision !== identityRevision) return;
+    if (revision !== identityRevision || request !== leaderboardRequest) return;
     state.rows = rows;
     state.updatedAt = new Date().toISOString();
     notify();
+    await loadObjectives();
+  }
+
+  async function loadObjectives() {
+    if (!client || !state.member) return;
+    const revision = identityRevision;
+    const request = ++objectivesRequest;
+    try {
+      const data = check(await client.rpc("ranking_objectives"));
+      if (!data || !Array.isArray(data.proposals) || !data.cutover || !data.week_start || !data.settles_on) {
+        throw new Error("Risposta degli obiettivi non valida.");
+      }
+      if (revision !== identityRevision || request !== objectivesRequest) return;
+      state.objectives = data;
+      state.objectivesError = "";
+    } catch (error) {
+      if (revision !== identityRevision || request !== objectivesRequest) return;
+      console.error("Caricamento obiettivi non riuscito.", error);
+      state.objectivesError = `Obiettivi non aggiornati. ${error.message || String(error)}`;
+    }
+    notify();
+  }
+
+  async function mutateObjectives(operation, args, message) {
+    if (state.busy) return { ok: false, error: "Attendi la fine dell'operazione in corso." };
+    const revision = identityRevision;
+    state.busy = true;
+    state.error = "";
+    state.notice = "";
+    notify();
+    try {
+      requireMember();
+      if (!navigator.onLine) throw new Error("Sei offline. Riconnettiti prima di inviare proposte o voti.");
+      check(await client.rpc(operation, args));
+      if (revision !== identityRevision) return { ok: false, error: "L'account è cambiato. Riapri Profilo." };
+      state.notice = message;
+      await loadLeaderboard();
+      if (revision !== identityRevision) return { ok: false, error: "L'account è cambiato. Riapri Profilo." };
+      if (state.objectivesError) {
+        return { ok: true, message: `${message} ${state.objectivesError}` };
+      }
+      return { ok: true, message };
+    } catch (error) {
+      if (revision === identityRevision) fail(error, "Operazione sugli obiettivi non riuscita.");
+      return { ok: false, error: `Operazione non riuscita. ${error.message || String(error)}` };
+    } finally {
+      finishBusy();
+    }
+  }
+
+  function proposeObjectives(id, rules) {
+    return mutateObjectives("propose_ranking_objectives", { p_id: id, p_rules: rules }, "Proposta inviata al gruppo.");
+  }
+
+  function voteObjectives(id, approve) {
+    return mutateObjectives("vote_ranking_objectives", { p_id: id, p_approve: approve }, "Voto registrato. La decisione non è modificabile.");
+  }
+
+  function withdrawObjectives(id) {
+    return mutateObjectives("withdraw_ranking_objectives", { p_id: id }, "Proposta ritirata.");
   }
 
   async function sync() {
@@ -437,5 +509,5 @@ window.workoutSocial = (() => {
   }
 
   return { init, snapshot, refresh, signIn, signUp, signOut, saveName, updateEmail, updatePassword, recordCompletion, completionMessage, reportError: fail,
-    fetchPersonalPlan, savePersonalPlan, fetchWorkoutHistory };
+    fetchPersonalPlan, savePersonalPlan, fetchWorkoutHistory, proposeObjectives, voteObjectives, withdrawObjectives };
 })();

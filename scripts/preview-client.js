@@ -12,6 +12,19 @@
   const persist = () => localStorage.setItem(key, JSON.stringify(database));
   const member = () => ({ user_id: userId, display_name: database.name });
   const session = () => signedIn ? { user: { id: userId, email: database.email } } : null;
+  const friendId = "00000000-0000-4000-8000-000000000002";
+  const thirdId = "00000000-0000-4000-8000-000000000003";
+  function calendar() {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date());
+    const part = (type) => parts.find((item) => item.type === type).value;
+    const date = new Date(`${part("year")}-${part("month")}-${part("day")}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
+    const week_start = date.toISOString().slice(0, 10);
+    date.setUTCDate(date.getUTCDate() + 7);
+    return { week_start, settles_on: date.toISOString().slice(0, 10), month: `${part("year")}-${part("month")}-01` };
+  }
 
   const banner = textEl("p", "Anteprima locale · account e classifica dimostrativi. Modifiche salvate solo in questo browser; nessun dato inviato al server. Password demo iniziale: Anteprima123! (ripristinata al ricaricamento). Non usare credenziali reali.", "social-panel preview-banner");
   document.body.prepend(banner);
@@ -29,6 +42,21 @@
       persist();
     }
     database.email ||= "demo@example.test";
+    if (!database.objectives) {
+      const week = calendar();
+      database.objectives = {
+        cutover: week.week_start,
+        proposals: [{
+          id: crypto.randomUUID(), user_id: friendId, display_name: "Amico demo",
+          rules: { count: { days: 3, bonus: 0.5 }, schedule: { days: [1, 6, 7], bonus: 0.5 } },
+          electorate: [userId, thirdId], voter_names: { [userId]: database.name, [thirdId]: "Amica demo" },
+          required_approvals: 2, status: "pending", effective_from: null,
+          created_at: new Date().toISOString(),
+          votes: [{ voter_id: thirdId, approve: true, created_at: new Date().toISOString() }],
+        }],
+      };
+      persist();
+    }
     const client = {
       auth: {
         getSession: async () => ok({ session: session() }),
@@ -77,12 +105,69 @@
       rpc: async (name, args = {}) => {
         if (!signedIn) throw new Error("Accedi all'anteprima.");
         if (name === "friends_leaderboard") {
-          const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Rome", year: "numeric", month: "2-digit" }).formatToParts(new Date());
-          const month = `${parts.find((part) => part.type === "year").value}-${parts.find((part) => part.type === "month").value}`;
+          const week = calendar();
           return ok([
-            { user_id: "demo-friend", display_name: "Amico demo", points: 70, gym_days: 5, current_streak: 3, multiplier: 1.5, position: 1, month_start: `${month}-01` },
-            { user_id: userId, display_name: database.name, points: 35, gym_days: 3, current_streak: 2, multiplier: 1.25, position: 2, month_start: `${month}-01` },
-          ]);
+            { user_id: friendId, display_name: "Amico demo", points: 50, gym_days: 5, position: 1 },
+            { user_id: userId, display_name: database.name, points: 30, gym_days: 3, position: 2 },
+            { user_id: thirdId, display_name: "Amica demo", points: 20, gym_days: 2, position: 3 },
+          ].map((row) => ({
+            ...row, month_start: week.month, week_start: week.week_start, settles_on: week.settles_on,
+            cutover: database.objectives.cutover, weekly_streak: 1, settled_multiplier: 1,
+            week_days: [1], pending_bonus: 0, current_bonuses: { streak: 0, count: 0, schedule: 0 },
+            current_streak: 0, multiplier: 1,
+          })));
+        }
+        if (name === "ranking_objectives") {
+          return ok(structuredClone({ ...database.objectives, ...calendar() }));
+        }
+        if (name === "propose_ranking_objectives") {
+          const error = validateRankingObjectives(args.p_rules);
+          if (error) throw new Error(error);
+          const existing = database.objectives.proposals.find((p) => p.id === args.p_id);
+          if (existing) {
+            if (existing.user_id === userId && JSON.stringify(existing.rules) === JSON.stringify(args.p_rules)) return ok(existing.id);
+            throw new Error("Identificativo proposta già usato.");
+          }
+          if (database.objectives.proposals.some((p) => p.user_id === userId &&
+            (p.status === "pending" || p.status === "approved" && p.effective_from > calendar().week_start))) {
+            throw new Error("Hai già una proposta in attesa o approvata per la prossima settimana.");
+          }
+          database.objectives.proposals.unshift({
+            id: args.p_id, user_id: userId, display_name: database.name, rules: structuredClone(args.p_rules),
+            electorate: [friendId, thirdId], voter_names: { [friendId]: "Amico demo", [thirdId]: "Amica demo" },
+            required_approvals: 2, status: "pending", effective_from: null,
+            created_at: new Date().toISOString(), votes: [],
+          });
+          persist();
+          return ok(args.p_id);
+        }
+        if (name === "vote_ranking_objectives" || name === "withdraw_ranking_objectives") {
+          const proposal = database.objectives.proposals.find((p) => p.id === args.p_id);
+          if (!proposal) throw new Error("Proposta non trovata.");
+          if (name === "withdraw_ranking_objectives") {
+            if (proposal.user_id !== userId) throw new Error("Solo il proponente può ritirare.");
+            if (proposal.status === "withdrawn") return ok("withdrawn");
+            if (proposal.status !== "pending") throw new Error("La proposta non è più in votazione.");
+            proposal.status = "withdrawn";
+          } else {
+            if (!proposal.electorate.includes(userId)) throw new Error("Non puoi votare questa proposta.");
+            const previous = proposal.votes.find((vote) => vote.voter_id === userId);
+            if (previous) {
+              if (previous.approve === args.p_approve) return ok(proposal.status);
+              throw new Error("Il voto non è modificabile.");
+            }
+            if (proposal.status !== "pending") throw new Error("La proposta non è più in votazione.");
+            proposal.votes.push({ voter_id: userId, approve: args.p_approve, created_at: new Date().toISOString() });
+            const approvals = proposal.votes.filter((vote) => vote.approve).length;
+            const rejections = proposal.votes.filter((vote) => !vote.approve).length;
+            if (approvals >= proposal.required_approvals) {
+              proposal.status = "approved";
+              proposal.effective_from = calendar().settles_on;
+            } else if (proposal.electorate.length - rejections < proposal.required_approvals) proposal.status = "rejected";
+          }
+          proposal.decided_at = proposal.status === "pending" ? null : new Date().toISOString();
+          persist();
+          return ok(proposal.status);
         }
         if (name === "save_workout_plan") {
           const errors = validateWorkoutPlan(args.p_definition);

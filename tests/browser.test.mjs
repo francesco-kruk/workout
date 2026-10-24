@@ -64,6 +64,10 @@ function setup(t, { configured = false, signedIn = true, approved = true } = {})
     rpc: async (name, args) => {
       state.calls.push({ name, args });
       if (state.beforeRpc) await state.beforeRpc(name, args);
+      if (name === "ranking_objectives") return {
+        data: { cutover: "2026-10-26", week_start: "2026-10-19", settles_on: "2026-10-26", proposals: [] },
+        error: state.rpcError,
+      };
       if (name === "submit_gym_day" && args.p_user_id !== state.id) {
         return { data: null, error: { code: "42501", message: "Membership required" } };
       }

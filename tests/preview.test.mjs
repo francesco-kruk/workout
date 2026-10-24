@@ -58,7 +58,7 @@ test("local preview injects a demo adapter without changing the production entry
   assert.equal(w.workoutLibrary.getDraft().definition.title, "La mia scheda");
   w.document.querySelector('[data-view="profile"]').click();
   await w.workoutSocial.refresh();
-  assert.equal(app.querySelectorAll(".leaderboard tbody tr").length, 2);
+  assert.equal(app.querySelectorAll(".leaderboard tbody tr").length, 3);
   assert.match(w.document.querySelector(".preview-banner").textContent, /Anteprima locale/);
   assert.equal(w.document.querySelector(".app-header").hidden, true);
   const settle = async () => {
@@ -68,6 +68,23 @@ test("local preview injects a demo adapter without changing the production entry
     assert.equal(w.workoutSocial.snapshot().busy, false);
   };
   await settle();
+  assert.match(app.textContent, /Punti Aura/);
+  assert.equal(w.workoutSocial.snapshot().objectivesError, "");
+  click("Approva");
+  await settle();
+  assert.equal(w.workoutSocial.snapshot().objectives.proposals[0].status, "approved");
+  assert.match(app.textContent, /Approvato, dal/);
+  const objectiveForm = app.querySelector(".objective-form");
+  const count = objectiveForm.querySelector('[name="enable-count"]');
+  count.checked = true;
+  count.dispatchEvent(new w.Event("input", { bubbles: true }));
+  objectiveForm.dispatchEvent(new w.Event("submit", { cancelable: true }));
+  await settle();
+  assert.equal(w.workoutSocial.snapshot().objectives.proposals[0].status, "pending");
+  assert.equal(JSON.parse(w.localStorage.getItem("workout.preview.database")).objectives.proposals.length, 2);
+  click("Ritira proposta");
+  await settle();
+  assert.equal(w.workoutSocial.snapshot().objectives.proposals[0].status, "withdrawn");
   assert.match(app.querySelector(".profile-summary").textContent, /demo@example.test/);
   const passwordResult = await w.workoutSocial.updatePassword("DemoChanged123!", "Anteprima123!");
   assert.equal(passwordResult.ok, true);

@@ -39,9 +39,15 @@ function renderProgress(container, { embedded = false } = {}) {
       metrics.className = "progress-metrics";
       for (const [label, value, unit] of [
         ["Giorni di allenamento", own.gym_days],
-        ["Punti", formatScore(own.points)],
-        ["Sequenza attiva", own.current_streak, "allenamenti"],
-        ["Moltiplicatore", `${formatScore(own.multiplier)}×`],
+        ["Punti Aura", formatScore(own.points)],
+        ...(own.cutover && own.week_start >= own.cutover ? [
+          ["Sequenza settimanale", own.weekly_streak, Number(own.weekly_streak) === 1 ? "settimana" : "settimane"],
+          ["Ultimo moltiplicatore liquidato", `${formatScore(own.settled_multiplier)}×`],
+          ["Bonus settimanale provvisorio", formatScore(own.pending_bonus), "Punti Aura"],
+        ] : [
+          ["Sequenza precedente", own.current_streak, "allenamenti"],
+          ["Moltiplicatore precedente", `${formatScore(own.multiplier)}×`],
+        ]),
       ]) {
         const metric = document.createElement("div");
         const result = textEl("dd", String(value));
@@ -50,7 +56,7 @@ function renderProgress(container, { embedded = false } = {}) {
         metrics.appendChild(metric);
       }
       monthly.appendChild(metrics);
-      monthly.appendChild(textEl("p", "Dati sincronizzati · giorni e punti del mese; la sequenza può continuare tra mesi.", "view-description"));
+      monthly.appendChild(textEl("p", "Dati sincronizzati · giorni e Punti Aura del mese. I bonus si liquidano dopo la settimana; la sequenza settimanale continua tra mesi.", "view-description"));
       if (social.updatedAt) monthly.appendChild(textEl("p", `Ultimo aggiornamento: ${new Date(social.updatedAt).toLocaleString("it-IT")}.`, "view-description"));
     } else {
       monthly.appendChild(textEl("p", !social.configured
@@ -86,7 +92,7 @@ function renderWorkoutHistory(container, state) {
   }
   try {
     const pending = pendingAttendance(state.userId).filter((receipt) => receipt.workout);
-    if (pending.length) container.appendChild(textEl("p", `${pending.length} allenamenti locali in attesa di invio. Non ancora inclusi nello storico sincronizzato o nei punti.`, "view-description"));
+    if (pending.length) container.appendChild(textEl("p", `${pending.length} allenamenti locali in attesa di invio. Non ancora inclusi nello storico sincronizzato o nei Punti Aura.`, "view-description"));
   } catch (error) {
     console.error("Lettura allenamenti in attesa non riuscita.", error);
     const status = textEl("p", error.message, "social-status error");
