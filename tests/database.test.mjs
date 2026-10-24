@@ -24,6 +24,7 @@ await db.exec(`
 `);
 await db.exec(await readFile(new URL("../supabase/migrations/202610210001_friends_leaderboard.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610210002_private_workouts.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240001_ranking_objectives.sql", import.meta.url), "utf8"));
 after(() => db.close());
 
 beforeEach(async () => {
@@ -389,6 +390,9 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
     },
     rpc: async (name, args) => {
       try {
+        if (name === "ranking_objectives") return {
+          data: (await db.query("select public.ranking_objectives() as data")).rows[0].data, error: null,
+        };
         if (name === "submit_gym_day") {
           const result = await submit(args.p_completed_at, {
             user: args.p_user_id, event: args.p_event_id,
@@ -472,6 +476,9 @@ test("full app edits a private plan and atomically syncs offline detailed result
     },
     rpc: async (name, args) => {
       try {
+        if (name === "ranking_objectives") return {
+          data: (await db.query("select public.ranking_objectives() as data")).rows[0].data, error: null,
+        };
         if (name === "friends_leaderboard") {
           return { data: (await board()).map((row) => ({ ...row, month_start: row.month_start.toISOString().slice(0, 10) })), error: null };
         }

@@ -51,7 +51,8 @@ is not supported: there is no service worker.
 1. Create an owner-controlled [Supabase project](https://supabase.com/docs/guides/getting-started).
    Choose its region and review current pricing, retention, and privacy terms.
    The database stores member IDs/display names, private versioned plans, private
-   completed-workout results, and shared attendance dates. Email addresses stay
+   completed-workout results, shared attendance dates, objective packages, and
+   proposal votes. Email addresses stay
    in Supabase Auth and are not exposed by application tables.
 2. Apply these migrations **in order**, using the SQL Editor or your normal
    Supabase migration workflow:
@@ -59,12 +60,14 @@ is not supported: there is no service worker.
    ```text
    supabase/migrations/202610210001_friends_leaderboard.sql
    supabase/migrations/202610210002_private_workouts.sql
+   supabase/migrations/202610240001_ranking_objectives.sql
    ```
 
-   Each migration runs once. If you already applied the leaderboard migration,
-   apply only the second one. Together they create the private group, membership
+   Each migration runs once; apply only migrations not already deployed. Together
+   they create the private group, membership
    rules, immutable per-user plans, private history, and atomic result/attendance
-   submissions. No existing attendance is discarded or invented.
+   submissions, and majority-approved ranking objectives. No existing attendance
+   is discarded or invented.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
    allowed Redirect URL to `https://francesco-kruk.github.io/workout/`, including
    the project path and trailing slash. These settings are retained for legacy
@@ -175,7 +178,8 @@ completo** for a compact, expandable overview. This is a training cycle, not a
 calendar schedule. Inspecting another day does not change the active training
 day or its progress. **Allenamento** remains the step-by-step training screen.
 **Profilo > Progressi** combines current-device workout completion, synchronized monthly
-training days/points, streak/multiplier, private history, and the friends ranking.
+training days/Punti Aura, weekly streak/multiplier, personal objectives and votes,
+private history, and the friends ranking.
 Local pending results are labeled separately from synchronized scores and history.
 
 **Modifica piano** opens the editor for the plan title, shared warmup, ordered
@@ -247,22 +251,89 @@ only letters, digits, underscores, or hyphens (up to 80 characters).
 Text fields allow up to 4000 characters; the browser limits a compact JSON plan
 to 200000 characters. The editor generates IDs automatically.
 
-## Scoring
+## Punti Aura and personal ranking objectives
+
+Apply the ranking-objectives migration **before deploying the new frontend**.
+It records a one-time cutover on the Monday strictly after deployment, in
+Europe/Rome. Before that date, the old workout/rest-day streak still applies;
+existing scores are not rewritten. From cutover, workouts earn 10 **Punti Aura**
+per distinct date, with no rest-gap penalty. **Aura Pts** is the compact table label.
+
+In **Profilo > Progressi > Obiettivi e Punti Aura**, each member can propose a
+package containing any combination of:
+
+| Objective | Earned bonus |
+| --- | --- |
+| Consecutive active weeks | Proposed step times consecutive weeks with at least one credited date, up to the proposed cap |
+| Weekly frequency | Proposed fixed bonus after the minimum number of distinct workout days (1–7) |
+| Weekly schedule | Proposed fixed bonus when every selected weekday has attendance; additional days are allowed |
+
+The group judges difficulty and fairness by approving the objectives **and**
+their bonus amounts. There is no automatic difficulty formula or global 3x cap.
+Each bonus/step/cap accepts 0.01–999.99 with at most two decimal places; the cap
+must be at least the step. This bounds the numeric representation, not the
+difficulty of a goal. Each type can appear once; a package needs at least one.
+Schedules select exact weekdays, not alternatives such as "Saturday or Sunday".
+
+The proposer cannot vote. A strict majority of the **other** members must
+approve: with three members, both friends must approve. The voter list, names,
+and threshold are frozen at submission. Votes are immutable; repeated identical
+requests are safe. A rejection ends a proposal as soon as approval becomes
+impossible. The owner can withdraw a pending proposal and submit another.
+Only one proposal can be pending per person. Approved packages start the Monday
+strictly after approval (never before cutover). A member with an approved future
+package must wait for activation before proposing another change.
+Removing an eligible voter invalidates pending proposals involving them; it
+does not lower the threshold. Newly added members cannot vote on older proposals.
+The group can see packages, their history, and decisions, but not private
+exercise-level workout history.
+
+Weeks run Monday–Sunday in Europe/Rome. A completed week's multiplier is
+`1 + streak bonus + frequency bonus + schedule bonus`; each achieved objective
+contributes independently. For example, a first-week streak step of +0.25x,
+three workout days for +0.5x, and Monday/Saturday/Sunday attendance for +0.5x
+produce 2.25x, or **67.5 Punti Aura** for three dates.
+The current week earns base points immediately; achieved bonuses are displayed
+as provisional and settle the following Monday. No cron job is needed: the
+database derives settlement from server time when scores are read.
+
+An empty completed week resets the consecutive-week sequence, not points already
+earned. The first active week counts as one step. Streaks start at cutover,
+carry across months and package revisions, and never require a particular gap
+between workouts. Without an approved effective package, the multiplier is 1x.
+Earlier weeks always use the package effective on their Monday.
+
+The ranking still resets monthly. Each workout's final points belong to its
+original month, including bonuses settled after that month ends. Late offline
+attendance retains its original date and can recompute that week's bonuses and
+subsequent weekly continuity; ordinary passage of time never erases earned
+points. The server RPC `friends_leaderboard` optionally accepts `p_month`
+(a first-of-month date) for historical monthly totals using today's settlement
+state. Clients cannot choose the settlement date.
+
+The profile shows the current month's Punti Aura, the weekly sequence, the
+most recently completed week's multiplier, provisional weekly bonuses, active
+and scheduled packages, and pending votes. Refresh after synchronization or use
+**Aggiorna / riprova** to fetch other members' latest votes; this is not a
+realtime feed. Offline standings retain their last-updated label. Proposals
+and votes require a connection and are not queued offline.
+
+### Legacy scoring before cutover
 
 | Rule | Behavior |
 | --- | --- |
 | Gym day | All required workout steps completed; optional sets completed or skipped |
 | Daily limit | One credited date per member, even with several workouts/devices |
 | Calendar | Europe/Rome, including daylight-saving changes |
-| Base points | 10 points for a credited date |
+| Base Punti Aura | 10 Punti Aura for a credited date |
 | Multiplier | Starts at 1x; rises by 0.25 per subsequent workout in the streak; capped at 3x |
 | Streak | Monday then Wednesday continues; Monday then Thursday resets |
 | Rest | No points and no multiplier increase |
-| Ranking | Points earned this calendar month; tied points share a rank |
-| Month boundary | Monthly points restart; streaks continue |
+| Ranking | Punti Aura earned this calendar month; tied totals share a rank |
+| Month boundary | Monthly Punti Aura restart; streaks continue |
 
 For example, a continuous sequence earns 10, 12.5, 15, 17.5, ... up to 30
-points per gym day. The displayed multiplier belongs to the latest credited
+Punti Aura per gym day. The displayed legacy multiplier belongs to the latest credited
 workout in the active streak, not a promise of points on the next date.
 A streak remains resumable through two calendar dates after the last workout;
 if that second date passes without training, the streak resets. Rest days do
@@ -339,13 +410,16 @@ the actual PostgreSQL migration and role/RLS/scoring queries in a disposable,
 in-memory database. No Docker, cloud credentials, or live user data are required.
 Tests also run the full editor -> private plan -> offline completion -> real
 PostgreSQL result/history/scoring flow and check account/plan-version isolation,
-immutable history, conflict handling, and history pagination.
+immutable history, conflict handling, and history pagination. Ranking coverage
+also exercises the real database proposal/voting UI, frozen majorities, immutable
+votes, Monday activation, additive settled weekly goals, late attendance,
+cross-month attribution, weekly resets, and account isolation.
 The test Auth schema is a minimal stand-in for Supabase's `auth.users`/`auth.uid()`;
 these checks do **not** validate hosted Auth settings, password policies, or PostgREST.
 CI runs the same checks.
 
 Before declaring a production rollout complete, verify on the configured Pages
-site with two approved accounts:
+site with three approved accounts:
 
 1. Signed-out visits open **Accedi** without tabs or example data. Wrong passwords
    show a retryable error. Registration signs in directly and shows pending
@@ -369,6 +443,12 @@ site with two approved accounts:
 7. Edit/publish a plan after completing a workout and check that history still
    shows the original version. Edit from another device during an active
    workout and verify the explicit version-switch choice and conflict handling.
+8. Propose objectives with bonus amounts in Profile. Confirm that the proposer
+   cannot vote, one friend's approval leaves the proposal pending, and both
+   approvals schedule it for next Monday. Confirm a rejection ends the proposal,
+   a pending proposal can be withdrawn, and all labels use Punti Aura/Aura Pts.
+   After the weekly boundary, check that completed-week bonuses settle while
+   the new week initially awards base points only.
 
 The public project URL, publishable client key, and final GitHub Pages URL are
 configured. This frontend flow requires no additional database migrations;

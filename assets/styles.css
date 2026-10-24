@@ -966,6 +966,47 @@ body:not(.auth-entry) main {
   margin: 4px 0;
 }
 
+.objective-form fieldset,
+.objective-card {
+  min-width: 0;
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+.objective-form label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+
+.objective-form input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.objective-form legend {
+  max-width: 100%;
+  padding: 0 4px;
+  font-weight: 800;
+}
+
+.objective-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 0 16px;
+}
+
+.objective-fields > p {
+  grid-column: 1 / -1;
+}
+
 .plan-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
