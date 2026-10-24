@@ -25,6 +25,7 @@ const migrationNames = [
   "202610240005_exercise_tracking",
   "202610240006_optional_warmup",
   "202610240007_set_notes",
+  "202610240008_required_rest",
 ];
 const migrations = await Promise.all(migrationNames.map((name) =>
   readFile(new URL(`../supabase/migrations/${name}.sql`, import.meta.url), "utf8")));
@@ -108,7 +109,7 @@ const plan = {
   warmup:[{id:"warm",name:"Warmup",target:"1 min"}],
   sessions:[
     {id:"strength",label:"Forza",type:"standard",exercises:[
-      {id:"squat",name:"Squat",sets:2,optionalSets:1,target:"8 reps",instructions:"Controllato"},
+      {id:"squat",name:"Squat",sets:2,optionalSets:1,target:"8 reps",rest:0,instructions:"Controllato"},
     ]},
     {id:"circuit",label:"Circuito",type:"amrap",duration:"20 minuti",exercises:[
       {id:"push",name:"Pushup",target:"10 reps"},
@@ -238,6 +239,7 @@ test("a populated legacy database upgrades without dropping plans, results, atte
   await upgrade.exec("set role authenticated");
   const original = structuredClone(plan);
   delete original.trackingId;
+  original.sessions[0].exercises[0].rest = "60-90 secondi";
   const record = (await upgrade.query("select public.save_workout_plan($1,$2,null,$3) as p",
     [alice,randomUUID(),JSON.stringify(original)])).rows[0].p;
   const event = randomUUID();
@@ -252,10 +254,51 @@ test("a populated legacy database upgrades without dropping plans, results, atte
   await upgrade.exec("set role authenticated");
   const history = (await upgrade.query("select public.workout_history() as h")).rows[0].h;
   assert.equal(history[0].id,event);
+  assert.equal(history[0].session.exercises[0].rest, 90);
+  const updated = (await upgrade.query("select * from public.workout_plan_versions where id=$1", [record.id])).rows[0];
+  assert.equal(updated.id, record.id);
+  assert.equal(updated.revision, record.revision);
+  const expected = structuredClone(original);
+  expected.sessions[0].exercises[0].rest = 90;
+  assert.deepEqual(updated.definition, expected);
   assert.deepEqual(history[0].measurements,{});
   await upgrade.query("select public.submit_workout_result($1,$2,$3,$4,'strength',$5,null)",
     [alice,event,at,record.id,JSON.stringify(steps)]);
   assert.equal(Number((await upgrade.query("select count(*) from public.gym_attendance")).rows[0].count),1);
   assert.equal((await upgrade.query("select public.workout_performance() as p")).rows[0].p.series.length,0);
   await assert.rejects(upgrade.query("select * from public.ranking_proposals"),/permission denied/);
+});
+
+test("required-rest migration converts upper bounds atomically and rolls back on missing rest", async (t) => {
+  const upgrade = new PGlite();
+  t.after(() => upgrade.close());
+  await upgrade.exec(bootstrap);
+  for (const migration of migrations.slice(0, -1)) await upgrade.exec(migration);
+  await upgrade.query("insert into auth.users values($1)", [alice]);
+  await upgrade.query("insert into public.friend_members(user_id,display_name) values($1,'Amico')", [alice]);
+  const valid = structuredClone(plan);
+  valid.sessions[0].exercises[0].rest = "45-60 secondi";
+  valid.sessions[0].exercises.push(
+    { id: "pushup", name: "Pushup", target: "8 reps", sets: 1, rest: "60 secondi" },
+    { id: "plank", name: "Plank", target: "30 secondi", sets: 1, rest: "0" },
+  );
+  const invalid = structuredClone(valid);
+  delete invalid.sessions[0].exercises[0].rest;
+  const validId = randomUUID();
+  const invalidId = randomUUID();
+  await upgrade.query("insert into public.workout_plan_versions(id,user_id,revision,definition) values($1,$2,1,$3),($4,$2,2,$5)",
+    [validId, alice, JSON.stringify(valid), invalidId, JSON.stringify(invalid)]);
+  await assert.rejects(upgrade.exec(migrations.at(-1)), /explicit integer rest/);
+  await upgrade.exec("rollback");
+  assert.deepEqual((await upgrade.query("select definition from public.workout_plan_versions where id=$1", [validId])).rows[0].definition, valid);
+  assert.deepEqual((await upgrade.query("select definition from public.workout_plan_versions where id=$1", [invalidId])).rows[0].definition, invalid);
+  await upgrade.query("update public.workout_plan_versions set definition=$1 where id=$2", [JSON.stringify(valid), invalidId]);
+  await upgrade.exec(migrations.at(-1));
+  const definition = (await upgrade.query("select definition from public.workout_plan_versions where id=$1", [validId])).rows[0].definition;
+  assert.deepEqual(definition.sessions[0].exercises.map((e) => e.rest), [60, 60, 0]);
+  assert.equal(definition.sessions[1].duration, valid.sessions[1].duration);
+  await upgrade.query("select set_config('request.jwt.claim.sub',$1,false)", [alice]);
+  await upgrade.exec("set role authenticated");
+  await assert.rejects(upgrade.query("select public.workout_plan_valid_v2($1)", [JSON.stringify(definition)]), /permission denied/);
+  await assert.rejects(upgrade.query("update public.workout_plan_versions set definition=definition"), /permission denied/);
 });

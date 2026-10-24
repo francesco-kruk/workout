@@ -199,23 +199,34 @@ function renderPersonalPlan(container) {
     if (max !== undefined) input.max = String(max);
     if (type !== "number") input.maxLength = 4000;
     const error = textEl("span", "", "social-status error");
+    if (!required) wrapper.appendChild(textEl("span", " (facoltativo)", "view-description"));
+    error.id = `field-error-${crypto.randomUUID()}`;
+    error.setAttribute("aria-live", "polite");
+    input.setAttribute("aria-describedby", error.id);
+    function validate() {
+      if (type === "number") {
+        error.textContent = validateNumberInput(input, label);
+      } else {
+        input.setCustomValidity(required && !input.value.trim() ? `${label}: campo obbligatorio.` : "");
+        error.textContent = input.validationMessage;
+        input.setAttribute("aria-invalid", String(!input.validity.valid));
+      }
+    }
     if (type === "number") {
       input.step = "1";
       input.inputMode = "numeric";
-      error.id = `number-error-${crypto.randomUUID()}`;
-      error.setAttribute("aria-live", "polite");
-      input.setAttribute("aria-describedby", error.id);
-      if (input.value) error.textContent = validateNumberInput(input, label);
     }
+    if (input.value) validate();
+    input.addEventListener("invalid", validate);
     input.addEventListener("input", () => {
-      if (type === "number") error.textContent = validateNumberInput(input, label);
+      validate();
       model[key] = type === "number"
         ? (input.value === "" ? (required || input.validity.badInput ? null : 0) : Number(input.value))
         : input.value;
       try { persist(); } catch (error) { showError(error); }
     });
     wrapper.appendChild(input);
-    if (type === "number") wrapper.appendChild(error);
+    wrapper.appendChild(error);
     parent.appendChild(wrapper);
     return input;
   }
@@ -371,7 +382,8 @@ function renderPersonalPlan(container) {
           exerciseGroup.append(modeLabel, weightLabel);
           field(exerciseGroup, "Serie obbligatorie", exercise, "sets", { type: "number", min: 1, max: 30, required: true });
           field(exerciseGroup, "Serie opzionali", exercise, "optionalSets", { type: "number", min: 0, max: 30 });
-          field(exerciseGroup, "Recupero in secondi (es. 60-90 secondi)", exercise, "rest");
+          field(exerciseGroup, "Recupero (secondi)", exercise, "rest", { type: "number", min: 0, max: 3600, required: true });
+          exerciseGroup.appendChild(textEl("p", "Inserisci 0 per nessun recupero.", "view-description"));
         }
         field(exerciseGroup, "Istruzioni esercizio", exercise, "instructions", { type: "textarea" });
         collectionControls(exerciseGroup, day.exercises, exerciseIndex);
@@ -437,7 +449,7 @@ function newWorkoutItem() {
   return { id: `item-${crypto.randomUUID()}`, name: "", target: "", instructions: "" };
 }
 function newWorkoutExercise() {
-  return { ...newWorkoutItem(), measurementMode: "reps", usesWeight: false, sets: 3, optionalSets: 0, rest: "" };
+  return { ...newWorkoutItem(), measurementMode: "reps", usesWeight: false, sets: 3, optionalSets: 0 };
 }
 function newWorkoutDay() {
   return { id: `day-${crypto.randomUUID()}`, label: "", type: "standard", instructions: "", exercises: [newWorkoutExercise()] };

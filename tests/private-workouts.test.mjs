@@ -15,7 +15,7 @@ const definition = {
   warmup: [{ id: "warm", name: "Mobilità", target: "5 minuti", instructions: "" }],
   sessions: [
     { id: "strength", label: "Forza", type: "standard", exercises: [
-      { id: "squat", name: "Squat", sets: 2, optionalSets: 1, target: "5 ripetizioni", rest: "60 secondi", measurementMode: "reps", usesWeight: true },
+      { id: "squat", name: "Squat", sets: 2, optionalSets: 1, target: "5 ripetizioni", rest: 60, measurementMode: "reps", usesWeight: true },
     ] },
     { id: "circuit", label: "Circuito", type: "amrap", duration: "1 min", exercises: [
       { id: "push", name: "Piegamenti", target: "10 ripetizioni" },
@@ -259,6 +259,7 @@ test("new plans save without warm-up and existing warm-up can be fully removed a
   input(first.w, "Nome giornata", "Senza riscaldamento");
   input(first.w, "Nome esercizio", "Squat");
   input(first.w, "Obiettivo / ripetizioni", "8-12 ripetizioni");
+  input(first.w, "Recupero (secondi)", "0");
   submitForm(first.w, first.app.querySelector(".plan-editor"));
   await until(() => first.w.workoutLibrary.snapshot().record);
   assert.equal(first.state.plans.get(alice).definition.warmup.length, 0);
@@ -337,6 +338,7 @@ test("integer inputs give immediate accessible feedback and recover without roun
   submitForm(w, app.querySelector(".plan-editor"));
   assert.equal(w.workoutLibrary.snapshot().record.revision, 1);
   input(w, "Serie obbligatorie", "2");
+  input(w, "Recupero (secondi)", "0");
   assert.equal(sets.getAttribute("aria-invalid"), "false");
   input(w, "Serie opzionali", "-1");
   assert.equal(app.querySelector(".plan-editor").checkValidity(), false);
@@ -931,12 +933,182 @@ test("first-time member creates a private plan with the editor and can publish w
   input(w, "Nome esercizio", "Squat");
   input(w, "Obiettivo / ripetizioni", "5 ripetizioni");
   input(w, "Serie obbligatorie", "2");
+  input(w, "Recupero (secondi)", "60");
   w.document.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
   await until(() => w.workoutLibrary.snapshot().record?.revision === 1);
   assert.equal(state.plans.get(alice).definition.title, "La mia nuova scheda");
   assert.equal(w.workoutLibrary.getDraft(), null);
   navigate(w, "workout");
   assert.match(app.textContent, /Giorno A/);
+});
+
+test("new plans require numeric rest and nonblank essential fields without requiring optional content", async (t) => {
+  const { w, state, app } = await mount(t);
+  click(w, "Crea scheda");
+  input(w, "Nome giornata", "Giorno A");
+  input(w, "Nome esercizio", "Squat");
+  input(w, "Obiettivo / ripetizioni", "8-12 ripetizioni");
+  const form = app.querySelector(".plan-editor");
+  const rest = [...form.querySelectorAll("label")].find((label) => label.firstChild.textContent === "Recupero (secondi)").querySelector("input");
+  assert.equal(rest.type, "number");
+  assert.equal(rest.required, true);
+  assert.equal(rest.step, "1");
+  assert.equal(rest.min, "0");
+  assert.equal(rest.max, "3600");
+  assert.equal(rest.value, "");
+  assert.equal(w.workoutLibrary.getDraft().definition.sessions[0].exercises[0].rest, undefined);
+  submitForm(w, form);
+  assert.equal(state.calls.some((call) => call.name === "save_workout_plan"), false);
+  assert.equal(rest.closest(".editor-day").open, true);
+  assert.equal(rest.closest(".editor-section").open, true);
+  for (const value of ["", "-1", "1.5", "3601", "60 secondi", "60-90"]) {
+    input(w, "Recupero (secondi)", value);
+    submitForm(w, form);
+    assert.equal(state.calls.some((call) => call.name === "save_workout_plan"), false, value);
+    assert.equal(rest.getAttribute("aria-invalid"), "true");
+  }
+  input(w, "Recupero (secondi)", "0");
+  for (const label of ["Titolo della scheda", "Nome giornata", "Nome esercizio", "Obiettivo / ripetizioni"]) {
+    const text = input(w, label, "   ");
+    submitForm(w, form);
+    assert.equal(state.calls.some((call) => call.name === "save_workout_plan"), false);
+    assert.equal(text.getAttribute("aria-invalid"), "true");
+    input(w, label, label);
+  }
+  submitForm(w, form);
+  await until(() => w.workoutLibrary.snapshot().record);
+  const saved = state.plans.get(alice).definition;
+  assert.equal(saved.sessions[0].exercises[0].rest, 0);
+  assert.equal(typeof saved.sessions[0].exercises[0].rest, "number");
+  assert.equal(saved.warmup.length, 0);
+  assert.equal(saved.sessions[0].instructions, "");
+});
+
+test("AMRAP keeps rest optional but switching to standard requires an explicit rest number", async (t) => {
+  const { w, state, app } = await mount(t);
+  click(w, "Crea scheda");
+  input(w, "Nome giornata", "Circuito");
+  input(w, "Nome esercizio", "Piegamenti");
+  input(w, "Obiettivo / ripetizioni", "10");
+  function changeType(value) {
+    const select = [...app.querySelectorAll("label")].find((label) => label.firstChild.textContent === "Tipo di allenamento").querySelector("select");
+    select.value = value;
+    select.dispatchEvent(new w.Event("change"));
+  }
+  changeType("amrap");
+  assert.equal(app.querySelector('input[min="0"][max="3600"]'), null);
+  const duration = input(w, "Durata (es. 20 minuti)", "");
+  submitForm(w, app.querySelector("form"));
+  assert.equal(state.calls.some((call) => call.name === "save_workout_plan"), false);
+  input(w, "Durata (es. 20 minuti)", "20 minuti");
+  assert.equal(duration.checkValidity(), true);
+  assert.equal(w.validateWorkoutPlan(w.workoutLibrary.getDraft().definition).length, 0);
+  changeType("standard");
+  const rest = app.querySelector('input[min="0"][max="3600"]');
+  assert.equal(rest.value, "");
+  assert.equal(rest.required, true);
+  submitForm(w, app.querySelector("form"));
+  assert.equal(state.calls.some((call) => call.name === "save_workout_plan"), false);
+  input(w, "Recupero (secondi)", "90");
+  submitForm(w, app.querySelector("form"));
+  await until(() => w.workoutLibrary.snapshot().record);
+  assert.equal(state.plans.get(alice).definition.sessions[0].exercises[0].rest, 90);
+});
+
+test("strict rest validation cannot be bypassed by library saves, imports or invalid remote plans", async (t) => {
+  const original = record(alice, "Piano");
+  const { w, state, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  const invalid = structuredClone(definition);
+  invalid.sessions[0].exercises[0].rest = "60 secondi";
+  const draft = w.workoutLibrary.writeDraft(invalid);
+  await assert.rejects(w.workoutLibrary.save(draft), /recupero obbligatorio/);
+  assert.equal(state.calls.some((call) => call.name === "save_workout_plan"), false);
+  assert.equal(w.workoutLibrary.getDraft().definition.sessions[0].exercises[0].rest, "60 secondi");
+  navigate(w, "profile");
+  navigate(w, "plan");
+  click(w, "Riprendi modifica");
+  const file = app.querySelector('input[type="file"]');
+  Object.defineProperty(file, "files", { value: [{ size: 500, text: async () => JSON.stringify(invalid) }] });
+  file.dispatchEvent(new w.Event("change"));
+  await until(() => app.querySelector(".social-status").textContent.includes("recupero obbligatorio"));
+  assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
+  const missingRest = record(alice, "Mancante");
+  delete missingRest.definition.sessions[0].exercises[0].rest;
+  const broken = await mount(t, { plans: new Map([[alice, missingRest]]) });
+  assert.equal(broken.w.workoutLibrary.snapshot().record, null);
+  assert.match(broken.app.textContent, /Scheda personale non valida/);
+});
+
+test("legacy caches and drafts convert ranges to upper bounds while preserving edits and paused timers", async (t) => {
+  const original = record(alice, "Intervallo");
+  original.definition.sessions[0].exercises[0].rest = "60-90 secondi";
+  const cached = structuredClone(original);
+  const draft = {
+    versionId: "legacy-draft", baseVersionId: original.id,
+    definition: { ...structuredClone(original.definition), title: "Bozza modificata" },
+  };
+  const progress = {
+    version: 2, sessions: { strength: {
+      runId: "preserved-run", steps: { "warmup:warm": "completed", "squat:0": "completed" },
+      history: ["warmup:warm", "squat:0"],
+      results: { "squat:0": { mode: "reps", weightKg: "20", reps: "8", notes: "Conservata" } },
+      restTimer: { durationSeconds: 75, remainingMilliseconds: 42000, deadline: null },
+    } },
+  };
+  const { w, app } = await mount(t, {
+    plans: new Map(), planError: new Error("Offline"),
+    storage: {
+      [`workout.personalPlan:${alice}`]: JSON.stringify(cached),
+      [`workout.planDraft:${alice}`]: JSON.stringify(draft),
+      [`workout.progress:${alice}:${original.id}`]: JSON.stringify(progress),
+    },
+  });
+  const clock = controlWorkoutClock(w);
+  assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
+  assert.equal(w.workoutLibrary.snapshot().plan.sessions[0].exercises[0].rest, 90);
+  assert.match(app.querySelector(".exercise-rest").textContent, /90 secondi/);
+  const storedDraft = w.workoutLibrary.getDraft();
+  assert.equal(storedDraft.versionId, draft.versionId);
+  assert.equal(storedDraft.baseVersionId, original.id);
+  assert.equal(storedDraft.definition.title, "Bozza modificata");
+  assert.equal(storedDraft.definition.sessions[0].exercises[0].rest, 90);
+  const serialized = w.localStorage.getItem(`workout.planDraft:${alice}`);
+  w.workoutLibrary.getDraft();
+  assert.equal(w.localStorage.getItem(`workout.planDraft:${alice}`), serialized);
+  navigate(w, "workout");
+  assert.equal(app.querySelector(".timer-value").textContent, "00:42");
+  assert.equal(w.getProgress("strength").runId, "preserved-run");
+  assert.equal(w.getProgress("strength").results["squat:0"].notes, "Conservata");
+  click(w, "Riprendi");
+  clock.advance(42000);
+  assert.match(app.querySelector(".focus-rest").textContent, /90 secondi/);
+  input(w, "Peso (kg)", "20");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  assert.equal(app.querySelector(".timer-value").textContent, "01:30");
+  assert.equal(w.getProgress("strength").restTimer.durationSeconds, 90);
+});
+
+test("rest displays app-supplied units in daily, full-plan, workout and historical views including zero", async (t) => {
+  for (const rest of [0, 90]) {
+    const original = record(alice, "Unità");
+    original.definition.sessions[0].exercises[0].rest = rest;
+    const { w, state, app } = await mount(t, { plans: new Map([[alice, original]]) });
+    const expected = rest === 0 ? "Recupero: 0 secondi (nessun recupero)" : "Recupero: 90 secondi";
+    assert.equal(app.querySelector(".exercise-rest").textContent, expected);
+    click(w, "Piano completo");
+    assert.equal(app.querySelector(".exercise-rest").textContent, expected);
+    navigate(w, "workout");
+    click(w, "Riscaldamento completato");
+    assert.equal(app.querySelector(".focus-rest").textContent, expected.replace("Recupero:", "Recupero dopo la serie:"));
+    state.history = [{
+      id: "units-history", completed_at: "2026-10-01Z", revision: 1, plan_title: "Unità",
+      warmup: definition.warmup, session: original.definition.sessions[0], steps: {},
+    }];
+    navigate(w, "profile");
+    await until(() => app.querySelector(".workout-history .exercise-rest"));
+    assert.equal(app.querySelector(".workout-history .exercise-rest").textContent, expected);
+  }
 });
 
 test("offline editor drafts survive reload; publication creates a new version and leaves old progress intact", async (t) => {
@@ -1267,12 +1439,11 @@ test("schema validation reveals collapsed editor sections and keeps the active p
   const original = record(alice, "Piano attivo");
   const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
   click(w, "Modifica piano");
-  input(w, "Recupero in secondi (es. 60-90 secondi)", "non valido");
+  const rest = input(w, "Recupero (secondi)", "1.5");
   assert.equal(app.querySelector(".editor-day").open, false);
   app.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
-  assert.match(app.querySelector(".social-status").textContent, /recupero da 0 a 3600/);
-  assert.equal(app.querySelectorAll(".editor-section:not([open])").length, 0);
-  assert.equal(w.document.activeElement, app.querySelector(".social-status"));
+  assert.match(rest.validationMessage, /numero intero da 0 a 3600/);
+  assert.equal(app.querySelector(".editor-day").open, true);
   assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
   assert.ok(w.workoutLibrary.getDraft());
 });
@@ -1903,7 +2074,7 @@ test("exercise tracking choices persist in editor drafts and publication fixes t
 
 test("completion requires valid persisted configured values and excludes hidden stale metrics", async (t) => {
   const original = record(alice, "Misure");
-  Object.assign(original.definition.sessions[0].exercises[0], { measurementMode: "seconds", usesWeight: false, rest: "" });
+  Object.assign(original.definition.sessions[0].exercises[0], { measurementMode: "seconds", usesWeight: false, rest: 0 });
   const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
   w.updateSetResult("strength", "squat:0", { mode: "reps", weightKg: "200", reps: "99" });
@@ -2011,7 +2182,7 @@ test("rest replaces the exercise until expiry, preserves pause/resume, and clean
 test("rest identifies the completed exercise at transitions and counts only completed sets", async (t) => {
   const original = record(alice, "Contesto recupero");
   original.definition.sessions[0].exercises.push({
-    id: "pushup", name: "Piegamenti", sets: 1, target: "8", measurementMode: "reps", usesWeight: false,
+    id: "pushup", name: "Piegamenti", sets: 1, target: "8", rest: 0, measurementMode: "reps", usesWeight: false,
   });
   const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
   w.setStepStatus("strength", "warmup:warm", "completed");
@@ -2061,8 +2232,8 @@ test("rest persists across reload, expires on visibility return, and quick navig
   assert.equal(app.querySelector(".rest-timer"), null);
 });
 
-test("zero/no rest advance immediately and the final outstanding set never starts recovery", async (t) => {
-  for (const rest of ["", "0 secondi", "60 secondi"]) {
+test("explicit zero rest advances immediately and the final outstanding set never starts recovery", async (t) => {
+  for (const rest of [0, 60]) {
     const original = record(alice, `Recupero ${rest}`);
     Object.assign(original.definition.sessions[0].exercises[0], { rest, sets: 2, optionalSets: 0, usesWeight: false });
     const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
@@ -2071,7 +2242,7 @@ test("zero/no rest advance immediately and the final outstanding set never start
     click(w, "Riscaldamento completato");
     input(w, "Ripetizioni", "8");
     click(w, "Serie completata");
-    if (rest === "60 secondi") {
+    if (rest === 60) {
       assert.ok(app.querySelector(".rest-timer"));
       click(w, "Salta recupero");
     }

@@ -79,7 +79,13 @@ window.workoutLibrary = (() => {
       if (!state.record) {
         try {
           const cached = localStorage.getItem(cacheKey(userId));
-          if (cached) activate(validateRecord(JSON.parse(cached), userId));
+          if (cached) {
+            const record = JSON.parse(cached);
+            const changed = normalizeStoredWorkoutRest(record?.definition);
+            validateRecord(record, userId);
+            if (changed) localStorage.setItem(cacheKey(userId), JSON.stringify(record));
+            activate(record);
+          }
         } catch (error) {
           report(error, "Cache della scheda non leggibile; tentativo di recupero dal server.");
         }
@@ -122,12 +128,17 @@ window.workoutLibrary = (() => {
       || !(draft.baseVersionId === null || typeof draft.baseVersionId === "string")) {
       throw new Error("Bozza locale non valida. Esportala prima di rimuoverla.");
     }
+    if (draft.restFormat !== "seconds") {
+      normalizeStoredWorkoutRest(draft.definition);
+      draft.restFormat = "seconds";
+      localStorage.setItem(draftKey(state.userId), JSON.stringify(draft));
+    }
     return draft;
   }
 
   function writeDraft(definition, baseVersionId = state.record?.id || null) {
     if (!state.userId) throw new Error("Accedi prima di modificare una scheda.");
-    const draft = { versionId: crypto.randomUUID(), baseVersionId, definition };
+    const draft = { versionId: crypto.randomUUID(), baseVersionId, definition, restFormat: "seconds" };
     localStorage.setItem(draftKey(state.userId), JSON.stringify(draft));
     return draft;
   }

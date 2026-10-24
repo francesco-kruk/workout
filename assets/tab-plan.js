@@ -72,7 +72,7 @@ function renderPlanSession(session, index, total) {
         ? exercise.target
         : `${exercise.sets}${exercise.optionalSets ? `+${exercise.optionalSets}` : ""} serie · ${exercise.target}`;
     list.appendChild(
-      createReadonlyItem(exercise.name, setLabel, exercise.instructions, exercise.rest)
+      createReadonlyItem(exercise.name, setLabel, exercise.instructions, session.type === "standard" ? exercise.rest : undefined)
     );
     if (session.type === "standard") {
       list.lastElementChild.appendChild(textEl("p", formatExerciseTracking(exercise), "view-description"));
@@ -86,7 +86,7 @@ function createReadonlyItem(name, target, instructions, rest) {
   const item = document.createElement("article");
   item.className = "readonly-item";
   item.append(textEl("h4", name), textEl("p", target, "exercise-target"));
-  if (rest) item.appendChild(textEl("p", `Recupero: ${rest}`, "exercise-rest"));
+  if (rest !== undefined) item.appendChild(textEl("p", `Recupero: ${formatRest(rest)}`, "exercise-rest"));
   if (instructions) {
     item.appendChild(textEl("p", instructions, "exercise-instructions"));
   }

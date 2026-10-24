@@ -85,8 +85,8 @@ function renderDayExercise(exercise, progress) {
   card.appendChild(header);
   card.appendChild(textEl("p", formatExerciseTracking(exercise), "view-description"));
 
-  if (exercise.rest) {
-    card.appendChild(textEl("p", `Recupero: ${exercise.rest}`, "exercise-rest"));
+  if (exercise.rest !== undefined) {
+    card.appendChild(textEl("p", `Recupero: ${formatRest(exercise.rest)}`, "exercise-rest"));
   }
   if (exercise.instructions) {
     card.appendChild(textEl("p", exercise.instructions, "exercise-instructions"));

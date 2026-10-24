@@ -366,12 +366,6 @@ function parseDurationSeconds(duration) {
   return match ? Number(match[1]) * 60 : 0;
 }
 
-function parseRestDurationSeconds(duration) {
-  const values = String(duration).match(/\d+(?:[.,]\d+)?/g)?.map(Number) || [];
-  if (values.length === 0) return 0;
-  return Math.round(values.length > 1 ? (values[0] + values[1]) / 2 : values[0]);
-}
-
 function getStoredSession(store, sessionId) {
   const stored = store.sessions[sessionId];
   return {

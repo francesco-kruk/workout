@@ -241,9 +241,9 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       textEl("h3", step.exercise.name),
       textEl("p", step.exercise.target, "focus-target")
     );
-    if (step.exercise.rest) {
+    if (step.exercise.rest !== undefined) {
       card.appendChild(
-        textEl("p", `Recupero dopo la serie: ${step.exercise.rest}`, "focus-rest")
+        textEl("p", `Recupero dopo la serie: ${formatRest(step.exercise.rest)}`, "focus-rest")
       );
     }
     if (step.exercise.instructions) {
@@ -547,8 +547,8 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         setStepStatus(sessionId, step.key, "completed");
       });
       const nextIndex = getSessionSummary(plan, plan.sessions.find((day) => day.id === sessionId)).currentIndex;
-      if (step.type === "set" && nextIndex >= 0 && step.exercise.rest) {
-        const durationSeconds = parseRestDurationSeconds(step.exercise.rest);
+      if (step.type === "set" && nextIndex >= 0) {
+        const durationSeconds = step.exercise.rest;
         if (durationSeconds > 0) {
           updateRestTimer(sessionId, {
             durationSeconds,

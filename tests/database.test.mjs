@@ -31,6 +31,7 @@ await db.exec(await readFile(new URL("../supabase/migrations/202610240004_manual
 await db.exec(await readFile(new URL("../supabase/migrations/202610240005_exercise_tracking.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240006_optional_warmup.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240007_set_notes.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240008_required_rest.sql", import.meta.url), "utf8"));
 after(() => db.close());
 
 beforeEach(async () => {
@@ -66,7 +67,7 @@ const privatePlan = {
   warmup: [{ id: "warm", name: "Warmup", target: "5 minuti", instructions: "" }],
   sessions: [
     { id: "strength", label: "Forza", type: "standard", exercises: [
-      { id: "squat", name: "Squat", target: "5 ripetizioni", sets: 1, optionalSets: 1, rest: "60 secondi" },
+      { id: "squat", name: "Squat", target: "5 ripetizioni", sets: 1, optionalSets: 1, rest: 60 },
     ] },
     { id: "circuit", label: "Circuito", type: "amrap", duration: "20 minuti", exercises: [
       { id: "push", name: "Piegamenti", target: "10 ripetizioni" },
@@ -189,6 +190,27 @@ test("tracking settings accept both modes and weight options without invalidatin
   assert.deepEqual(validateWorkoutPlan(privatePlan), []);
   saved = await savePrivatePlan(privatePlan, saved.id);
   assert.deepEqual(saved.definition, privatePlan);
+});
+
+test("rest requires integer JSON seconds with the same frontend and database bounds", async () => {
+  for (const rest of [undefined, null, "", " ", "60", "60 secondi", "60-90", "60-90 secondi", -1, 1.5, 3601, true, {}, []]) {
+    const invalid = structuredClone(privatePlan);
+    invalid.sessions[0].exercises[0].rest = rest;
+    assert.match(validateWorkoutPlan(invalid).join("\n"), /recupero obbligatorio/);
+    await assert.rejects(savePrivatePlan(invalid), /Invalid workout plan/);
+  }
+  let base = null;
+  for (const rest of [0, 1, 90, 3600]) {
+    const valid = structuredClone(privatePlan);
+    valid.sessions[0].exercises[0].rest = rest;
+    valid.sessions[0].exercises[0].instructions = "";
+    valid.sessions[0].subtitle = "";
+    assert.deepEqual(validateWorkoutPlan(valid), []);
+    const saved = await savePrivatePlan(valid, base);
+    assert.equal(saved.definition.sessions[0].exercises[0].rest, rest);
+    assert.equal(saved.definition.sessions[1].exercises[0].rest, undefined);
+    base = saved.id;
+  }
 });
 
 test("empty warm-up plans save and submit standard and AMRAP results without phantom required steps", async () => {
@@ -525,7 +547,7 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
     warmup: [{ id: "warm", name: "Riscaldamento", target: "1 min" }],
     sessions: [{
       id: "gym", label: "Giorno 1", type: "standard",
-      exercises: [{ id: "squat", name: "Squat", target: "5", sets: 1, optionalSets: 1 }],
+      exercises: [{ id: "squat", name: "Squat", target: "5", sets: 1, optionalSets: 1, rest: 0 }],
     }],
   };
   const container = w.document.querySelector("main");

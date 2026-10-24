@@ -61,7 +61,12 @@
 
   window.loadSupabaseClient = async () => {
     const saved = localStorage.getItem(key);
-    if (saved) database = JSON.parse(saved);
+    if (saved) {
+      database = JSON.parse(saved);
+      for (const plan of database.plans) normalizeStoredWorkoutRest(plan.definition);
+      for (const row of database.history) normalizeStoredWorkoutRest({ sessions: [row.session] });
+      persist();
+    }
     else {
       const definition = await loadPlan();
       definition.trackingId = "demo-plan";

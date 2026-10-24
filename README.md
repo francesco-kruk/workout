@@ -77,6 +77,7 @@ is not supported: there is no service worker.
    supabase/migrations/202610240005_exercise_tracking.sql
    supabase/migrations/202610240006_optional_warmup.sql
    supabase/migrations/202610240007_set_notes.sql
+   supabase/migrations/202610240008_required_rest.sql
    ```
 
    Each migration runs once; apply only migrations not already deployed. Together
@@ -89,6 +90,12 @@ is not supported: there is no service worker.
    is discarded or invented. Deploy the optional-warm-up migration before publishing
    a frontend that saves plans without warm-up.
    Apply the set-notes migration before publishing a frontend that submits notes.
+   Apply the required-rest migration before publishing the numeric-rest frontend.
+   It converts existing rest strings to numbers and intervals to their upper
+   bounds (for example, `"60-90 secondi"` becomes `90`). Only rest metadata is
+   changed: plan/version IDs, revisions, recorded results, and attendance are
+   preserved. The migration aborts atomically if any stored plan has missing or
+   unconvertible rest; correct those definitions explicitly before retrying.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
    allowed Redirect URL to `https://francesco-kruk.github.io/workout/`, including
    the project path and trailing slash. These settings are retained for legacy
@@ -173,6 +180,20 @@ values. Reps, seconds, set counts, and AMRAP counts must be whole numbers within
 their existing limits; weight allows up to two decimal places. Valid zero values
 are accepted where appropriate. Exercise targets remain free text, so ranges
 such as “8–12 ripetizioni” still work.
+
+Every standard exercise requires **Recupero (secondi)** as a whole number from
+0 to 3600; enter **0** explicitly for no rest. Blank values, fractions, ranges,
+and strings such as `"60 secondi"` are rejected when saving or importing. In
+version-2 JSON, use `"rest": 60`, not `"rest": "60"`. The app adds **secondi**
+when displaying the number. Existing ranges use their upper bound for both
+display and future timers; cached plans and older drafts are converted on read.
+An already-running or paused timer keeps its remaining time.
+
+Plan title, day names, exercise names and targets, required set counts, and AMRAP
+duration must be filled in. Required text cannot contain only whitespace.
+Warm-up is optional, but any added warm-up item needs a name and target.
+Subtitles, instructions, optional set counts, and per-set notes remain optional.
+AMRAP exercises do not require individual rest values.
 
 Each standard exercise set also has **Note della serie (facoltative)**, a text
 field limited to 1000 characters. Notes are saved locally with that set and included
@@ -364,11 +385,12 @@ blocking private plan loading or sign-in.
 
 Exports/imports use the same `version: 2`, `title`, `warmup`, and `sessions`
 structure as `data/workout-plan.json`. The browser, validation script, and database
-validate it. Limits protect rendering and submission size: 1–50 warmup items,
+validate it. Limits protect rendering and submission size: 0–50 warmup items,
 1–30 days, 1–50 exercises per day, 1–30 required sets, 0–30 optional sets, at most
 1500 steps per day, and AMRAP duration 1–180 minutes (for example `"20 minuti"`).
-Rest is optional; when supplied it uses integer seconds from 0 to 3600, either a
-single value or an ascending range (for example `"60"` or `"60-90 secondi"`).
+Rest is required for every standard exercise as an integer JSON number from 0
+to 3600 (for example `"rest": 60`). Use `0` explicitly for no recovery; ranges,
+text, and missing values are not accepted.
 IDs must be unique across warmup/days/exercises, start with a letter, and contain
 only letters, digits, underscores, or hyphens (up to 80 characters).
 `warmup`, `constructor`, `prototype`, and `__proto__` are reserved.

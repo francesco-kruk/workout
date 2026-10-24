@@ -11,7 +11,7 @@ const plan = {
   warmup: [{ id: "warm", name: "Warmup", target: "1 min" }],
   sessions: [
     { id: "standard", label: "Giorno 1", type: "standard", exercises: [
-      { id: "squat", name: "Squat", target: "5", sets: 1, optionalSets: 1 },
+      { id: "squat", name: "Squat", target: "5", sets: 1, optionalSets: 1, rest: 0 },
     ] },
     { id: "amrap", label: "Giorno 2", type: "amrap", duration: "1 min", exercises: [] },
   ],
