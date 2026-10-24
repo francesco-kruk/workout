@@ -150,6 +150,9 @@ An already-loaded, approved account can keep training during an outage.
 ### Profile and account settings
 
 **Suono del recupero** plays one short beep when an active rest timer finishes.
+During rest, the timer shows the exercise just completed and its completed-set
+count, including any optional sets in the total. Skipped sets are not counted as
+completed. This context remains visible while paused and after reloading.
 It is enabled by default; check **Disattiva il suono del recupero** in Profilo to
 mute it. This preference stays on the current browser/device, including local
 mode, and is not synchronized to your account. Audio needs a user interaction;

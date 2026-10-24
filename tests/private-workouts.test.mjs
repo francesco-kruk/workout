@@ -1867,6 +1867,8 @@ test("rest replaces the exercise until expiry, preserves pause/resume, and clean
   input(w, "Ripetizioni", "8");
   click(w, "Serie completata");
   assert.ok(app.querySelector(".rest-timer"));
+  assert.equal(app.querySelector(".rest-timer h3").textContent, "Squat");
+  assert.match(app.querySelector(".rest-timer").textContent, /1 di 3 serie completate \(1 opzionali\)/);
   assert.equal(app.querySelector(".focus-card"), null);
   assert.equal(app.querySelector(".workout-actions"), null);
   assert.equal(app.querySelector("[data-complete-set]"), null);
@@ -1874,12 +1876,14 @@ test("rest replaces the exercise until expiry, preserves pause/resume, and clean
   clock.advance(10000);
   assert.equal(app.querySelector(".timer-value").textContent, "00:50");
   click(w, "Pausa");
+  assert.match(app.querySelector(".rest-timer").textContent, /Squat.*1 di 3 serie completate/);
   clock.advance(20000);
   assert.equal(w.getProgress("strength").restTimer.remainingMilliseconds, 50000);
   assert.equal(clock.intervals.size, 0);
   navigate(w, "profile");
   navigate(w, "workout");
   assert.equal(app.querySelector(".timer-value").textContent, "00:50");
+  assert.match(app.querySelector(".rest-timer").textContent, /Squat.*1 di 3 serie completate/);
   click(w, "Riprendi");
   assert.equal(clock.intervals.size, 1);
   clock.advance(50000);
@@ -1900,6 +1904,31 @@ test("rest replaces the exercise until expiry, preserves pause/resume, and clean
   assert.match(app.querySelector(".focus-kicker").textContent, /serie 3 di 3/);
 });
 
+test("rest identifies the completed exercise at transitions and counts only completed sets", async (t) => {
+  const original = record(alice, "Contesto recupero");
+  original.definition.sessions[0].exercises.push({
+    id: "pushup", name: "Piegamenti", sets: 1, target: "8", measurementMode: "reps", usesWeight: false,
+  });
+  const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  w.setStepStatus("strength", "warmup:warm", "completed");
+  w.setStepStatus("strength", "squat:0", "skipped");
+  navigate(w, "workout");
+  input(w, "Peso (kg)", "20");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  assert.equal(app.querySelector(".rest-timer h3").textContent, "Squat");
+  assert.match(app.querySelector(".rest-timer").textContent, /1 di 3 serie completate/);
+  click(w, "Salta recupero");
+  input(w, "Peso (kg)", "20");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  assert.equal(app.querySelector(".rest-timer h3").textContent, "Squat");
+  assert.match(app.querySelector(".rest-timer").textContent, /2 di 3 serie completate/);
+  assert.doesNotMatch(app.querySelector(".rest-timer").textContent, /Piegamenti/);
+  click(w, "Salta recupero");
+  assert.equal(app.querySelector(".focus-card h3").textContent, "Piegamenti");
+});
+
 test("rest persists across reload, expires on visibility return, and quick navigation clears it", async (t) => {
   const original = record(alice, "Ripresa");
   const plans = new Map([[alice, original]]);
@@ -1911,6 +1940,7 @@ test("rest persists across reload, expires on visibility return, and quick navig
   click(first.w, "Serie completata");
   const { w, app } = await mount(t, { plans, storage: snapshotStorage(first.w) });
   assert.ok(app.querySelector(".rest-timer"));
+  assert.match(app.querySelector(".rest-timer").textContent, /Squat.*1 di 3 serie completate/);
   w.updateRestTimer("strength", { durationSeconds: 60, remainingMilliseconds: 60000, deadline: Date.now() - 1 });
   Object.defineProperty(w.document, "hidden", { value: false, configurable: true });
   w.document.dispatchEvent(new w.Event("visibilitychange"));

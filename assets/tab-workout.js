@@ -102,7 +102,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       if (rest.remainingMilliseconds === 0 || (rest.deadline !== null && rest.deadline <= Date.now())) {
         clearRestTimer(session.id);
       } else {
-        container.appendChild(renderRestTimer(session.id, rest));
+        container.appendChild(renderRestTimer(session.id, rest, summary));
         return;
       }
     }
@@ -379,12 +379,24 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
   }
 
-  function renderRestTimer(sessionId, initialTimer) {
+  function renderRestTimer(sessionId, initialTimer, summary) {
     const timer = document.createElement("section");
     timer.className = "rest-timer";
     timer.setAttribute("aria-label", "Timer di recupero");
 
     const title = textEl("p", "Recupero", "focus-kicker");
+    const lastStep = summary.steps.find((step) => step.key === summary.progress.history.at(-1));
+    timer.appendChild(title);
+    if (lastStep?.type === "set") {
+      const completedSets = summary.steps.filter((step) =>
+        step.type === "set" && step.exercise.id === lastStep.exercise.id
+        && summary.progress.steps[step.key] === "completed"
+      ).length;
+      timer.append(
+        textEl("h3", lastStep.exercise.name),
+        textEl("p", `${completedSets} di ${lastStep.totalSets} serie completate${lastStep.exercise.optionalSets ? ` (${lastStep.exercise.optionalSets} opzionali)` : ""}`, "view-description")
+      );
+    }
     const timeDisplay = textEl(
       "strong",
       formatTime(Math.ceil(initialTimer.remainingMilliseconds / 1000)),
@@ -458,7 +470,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       clearRestTimer(sessionId);
       renderCurrent();
     });
-    timer.append(title, timeDisplay, status);
+    timer.append(timeDisplay, status);
     const controls = document.createElement("div");
     controls.className = "timer-controls";
     controls.append(toggle, skip);
