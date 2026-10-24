@@ -5,7 +5,20 @@ import { PGlite } from "@electric-sql/pglite";
 import { randomUUID } from "node:crypto";
 import { JSDOM } from "jsdom";
 import { createRequire } from "node:module";
-const { validateWorkoutPlan } = createRequire(import.meta.url)("../assets/plan-validation.js");
+const { validateWorkoutPlan, normalizeStoredWorkoutRest } = createRequire(import.meta.url)("../assets/plan-validation.js");
+
+test("legacy bundled blank rest upgrades only the five known no-recovery exercises", () => {
+  const ids = ["core-barchetta", "core-pallina-bastone", "core-raises-barchetta",
+    "core-crunch-farfalla", "core-cardio"];
+  const stored = { sessions: [{ type: "standard", exercises: [
+    ...ids.map((id) => ({ id, rest: "" })),
+    { id: "other", rest: "" }, { id: "core-barchetta" },
+    { id: "core-cardio", rest: "30-60 secondi" },
+  ] }] };
+  assert.equal(normalizeStoredWorkoutRest(stored), true);
+  assert.deepEqual(stored.sessions[0].exercises.map((e) => e.rest), [0, 0, 0, 0, 0, "", undefined, 60]);
+  assert.equal(normalizeStoredWorkoutRest(stored), false);
+});
 
 const db = new PGlite();
 const alice = "11111111-1111-4111-8111-111111111111";

@@ -104,6 +104,16 @@ begin
     for day in select value, ordinality from jsonb_array_elements(converted_definition->'sessions') with ordinality loop
       for exercise in select value, ordinality from jsonb_array_elements(day.value->'exercises') with ordinality loop
         if jsonb_typeof(exercise.value->'rest') = 'string' then
+          -- These bundled exercises explicitly used blank rest for no recovery.
+          if day.value->>'type' = 'standard'
+            and exercise.value->>'rest' = ''
+            and exercise.value->>'id' in ('core-barchetta', 'core-pallina-bastone',
+              'core-raises-barchetta', 'core-crunch-farfalla', 'core-cardio') then
+            converted_definition := jsonb_set(converted_definition,
+              array['sessions', (day.ordinality - 1)::text, 'exercises', (exercise.ordinality - 1)::text, 'rest'],
+              '0'::jsonb);
+            continue;
+          end if;
           if day.value->>'type' = 'amrap' and trim(exercise.value->>'rest') = '' then
             converted_definition := converted_definition #-
               array['sessions', (day.ordinality - 1)::text, 'exercises', (exercise.ordinality - 1)::text, 'rest'];

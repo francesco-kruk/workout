@@ -281,6 +281,10 @@ test("required-rest migration converts upper bounds atomically and rolls back on
   valid.sessions[0].exercises.push(
     { id: "pushup", name: "Pushup", target: "8 reps", sets: 1, rest: "60 secondi" },
     { id: "plank", name: "Plank", target: "30 secondi", sets: 1, rest: "0" },
+    ...["core-barchetta", "core-pallina-bastone", "core-raises-barchetta",
+      "core-crunch-farfalla", "core-cardio"].map((id) => ({
+      id, name: id, target: "20 secondi", sets: 1, rest: "",
+    })),
   );
   const invalid = structuredClone(valid);
   delete invalid.sessions[0].exercises[0].rest;
@@ -292,10 +296,15 @@ test("required-rest migration converts upper bounds atomically and rolls back on
   await upgrade.exec("rollback");
   assert.deepEqual((await upgrade.query("select definition from public.workout_plan_versions where id=$1", [validId])).rows[0].definition, valid);
   assert.deepEqual((await upgrade.query("select definition from public.workout_plan_versions where id=$1", [invalidId])).rows[0].definition, invalid);
+  const blank = structuredClone(valid);
+  blank.sessions[0].exercises[0].rest = "";
+  await upgrade.query("update public.workout_plan_versions set definition=$1 where id=$2", [JSON.stringify(blank), invalidId]);
+  await assert.rejects(upgrade.exec(migrations.at(-1)), /Cannot convert rest/);
+  await upgrade.exec("rollback");
   await upgrade.query("update public.workout_plan_versions set definition=$1 where id=$2", [JSON.stringify(valid), invalidId]);
   await upgrade.exec(migrations.at(-1));
   const definition = (await upgrade.query("select definition from public.workout_plan_versions where id=$1", [validId])).rows[0].definition;
-  assert.deepEqual(definition.sessions[0].exercises.map((e) => e.rest), [60, 60, 0]);
+  assert.deepEqual(definition.sessions[0].exercises.map((e) => e.rest), [60, 60, 0, 0, 0, 0, 0, 0]);
   assert.equal(definition.sessions[1].duration, valid.sessions[1].duration);
   await upgrade.query("select set_config('request.jwt.claim.sub',$1,false)", [alice]);
   await upgrade.exec("set role authenticated");
