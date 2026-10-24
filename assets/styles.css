@@ -1212,6 +1212,55 @@ body:not(.auth-entry) main {
   border-radius: var(--radius);
 }
 
+.creation-paths {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.creation-paths .overview-card {
+  margin: 0;
+  min-width: 0;
+}
+
+.creation-paths .btn,
+.creation-paths input,
+.creation-paths textarea {
+  margin-top: 12px;
+  max-width: 100%;
+}
+
+.creation-paths textarea {
+  width: 100%;
+  min-height: 130px;
+}
+
+.wizard-panel[hidden] {
+  display: none;
+}
+
+.wizard-navigation {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 0;
+  background: var(--bg, #000);
+}
+
+.wizard-navigation [aria-current="step"] {
+  border-color: var(--text);
+  font-weight: 800;
+}
+
+.wizard-panel > h3:focus {
+  outline: 2px solid var(--text);
+  outline-offset: 4px;
+}
+
+.import-preview {
+  margin: 16px 0;
+}
+
 .progress-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

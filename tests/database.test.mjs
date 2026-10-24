@@ -670,6 +670,7 @@ test("full app edits a private plan and atomically syncs offline detailed result
   const title = [...w.document.querySelectorAll("label")].find((label) => label.firstChild.textContent === "Titolo della scheda").querySelector("input");
   title.value = "Versione personale aggiornata";
   title.dispatchEvent(new w.Event("input", { bubbles: true }));
+  click("3. Rivedi piano");
   w.document.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
   for (let attempt = 0; attempt < 100 && w.workoutLibrary.snapshot().record.revision !== 2; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));

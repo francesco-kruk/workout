@@ -16,6 +16,11 @@ test("local preview injects a demo adapter without changing the production entry
   assert.equal((await fetch(`${origin}/__preview/client.js`)).status, 200);
   assert.equal((await fetch(`${origin}/package.json`)).status, 404);
   assert.equal((await fetch(`${origin}/.git/config`)).status, 404);
+  for (const [path, type] of [["data/workout-plan-template.csv", "text/csv"], ["assets/skills/workout-plan/SKILL.md", "text/markdown"]]) {
+    const response = await fetch(`${origin}/${path}`);
+    assert.equal(response.status, 200);
+    assert.ok(response.headers.get("content-type").startsWith(type));
+  }
   const production = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.doesNotMatch(production, /preview\/client|preview-client/);
 
@@ -47,6 +52,7 @@ test("local preview injects a demo adapter without changing the production entry
   const title = app.querySelector(".plan-editor input");
   title.value = "Piano locale modificato";
   title.dispatchEvent(new w.Event("input", { bubbles: true }));
+  click("3. Rivedi piano");
   app.querySelector("form").dispatchEvent(new w.Event("submit", { cancelable: true }));
   for (let attempt = 0; attempt < 100 && w.workoutLibrary.snapshot().record.revision !== 2; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -54,6 +60,8 @@ test("local preview injects a demo adapter without changing the production entry
   assert.equal(w.workoutLibrary.snapshot().plan.title, "Piano locale modificato");
   assert.equal(JSON.parse(w.localStorage.getItem("workout.preview.database")).plans.at(-1).definition.title, "Piano locale modificato");
   click("Nuovo piano");
+  assert.equal(app.querySelectorAll(".creation-paths > section").length, 3);
+  click("Crea scheda");
   assert.ok(app.querySelector(".plan-editor"));
   assert.equal(w.workoutLibrary.getDraft().definition.title, "La mia scheda");
   w.document.querySelector('[data-view="profile"]').click();

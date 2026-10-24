@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolve, sep, extname } from "node:path";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
+const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".csv": "text/csv", ".md": "text/markdown" };
 
 export function createPreviewServer() {
   return createServer(async (request, response) => {

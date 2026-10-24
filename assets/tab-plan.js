@@ -1,4 +1,4 @@
-function renderPlan(container, plan, onInspectDay) {
+function renderPlan(container, plan, onInspectDay, onEditExercise) {
   container.replaceChildren();
 
   const intro = document.createElement("section");
@@ -37,13 +37,13 @@ function renderPlan(container, plan, onInspectDay) {
       inspect.addEventListener("click", () => onInspectDay(session.id));
       details.appendChild(inspect);
     }
-    details.appendChild(renderPlanSession(session, index, plan.sessions.length));
+    details.appendChild(renderPlanSession(session, index, plan.sessions.length, onEditExercise));
     sessions.appendChild(details);
   });
   container.appendChild(sessions);
 }
 
-function renderPlanSession(session, index, total) {
+function renderPlanSession(session, index, total, onEditExercise) {
   const card = document.createElement("section");
   card.className = "overview-card plan-session";
 
@@ -59,6 +59,9 @@ function renderPlanSession(session, index, total) {
     heading.appendChild(textEl("span", session.subtitle, "session-badge"));
   }
   card.appendChild(heading);
+  if (session.type === "amrap") {
+    card.appendChild(textEl("p", `Durata AMRAP: ${session.duration}`, "exercise-target"));
+  }
 
   if (session.instructions) {
     card.appendChild(textEl("p", session.instructions, "exercise-instructions"));
@@ -76,6 +79,11 @@ function renderPlanSession(session, index, total) {
     );
     if (session.type === "standard") {
       list.lastElementChild.appendChild(textEl("p", formatExerciseTracking(exercise), "view-description"));
+    }
+    if (onEditExercise) {
+      const edit = createButton(`Modifica ${exercise.name || "esercizio"}`, "btn btn-secondary");
+      edit.addEventListener("click", () => onEditExercise(exercise.id));
+      list.lastElementChild.appendChild(edit);
     }
   }
   card.appendChild(list);
