@@ -43,13 +43,14 @@ function renderProgress(container, { embedded = false } = {}) {
       }
       const metrics = document.createElement("dl");
       metrics.className = "progress-metrics";
-      for (const [label, value, unit] of [
+      for (const [label, value, unit, className] of [
         ["Giorni di allenamento", own.gym_days],
-        ["Punti Aura", formatScore(own.points)],
+        ["Punti Aura", formatScore(own.points), null, "aura-metric"],
         ["Sequenza settimanale", own.weekly_streak || 0, Number(own.weekly_streak) === 1 ? "settimana" : "settimane"],
         ["Moltiplicatore dell'ultima settimana attiva", `${formatScore(own.multiplier)}×`],
       ]) {
         const metric = document.createElement("div");
+        if (className) metric.className = className;
         const result = textEl("dd", String(value));
         if (unit) result.appendChild(textEl("span", ` ${unit}`, "metric-unit"));
         metric.append(textEl("dt", label), result);

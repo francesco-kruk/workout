@@ -17,8 +17,8 @@ function renderLeaderboard(container, { embedded = false, showProfile = true } =
   table.appendChild(textEl("caption", "Punti Aura mensili del gruppo"));
   const head = document.createElement("thead");
   const labels = document.createElement("tr");
-  for (const label of ["Pos.", "Amico", "Aura Pts", "Giorni"]) {
-    const cell = textEl("th", label);
+  for (const [label, className] of [["Pos."], ["Amico"], ["Aura Pts", "aura-score"], ["Giorni"]]) {
+    const cell = textEl("th", label, className);
     cell.scope = "col";
     labels.appendChild(cell);
   }
@@ -94,8 +94,8 @@ function renderLeaderboard(container, { embedded = false, showProfile = true } =
     for (const row of state.rows) {
       const tr = document.createElement("tr");
       if (row.user_id === state.user?.id) tr.className = "leaderboard-self";
-      for (const value of [row.position, row.display_name, formatScore(row.points), row.gym_days]) {
-        tr.appendChild(textEl("td", String(value)));
+      for (const [value, className] of [[row.position], [row.display_name], [formatScore(row.points), "aura-score"], [row.gym_days]]) {
+        tr.appendChild(textEl("td", String(value), className));
       }
       body.appendChild(tr);
     }
