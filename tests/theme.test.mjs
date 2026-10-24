@@ -68,7 +68,7 @@ test("theme colors meet text and interactive boundary contrast thresholds", (t) 
 test("browser chrome matches the canvas and the stylesheet cache version is updated", (t) => {
   const { document, tokens } = theme(t);
   assert.equal(document.querySelector('meta[name="theme-color"]').content, tokens.getPropertyValue("--bg").trim());
-  assert.equal(document.querySelector('link[rel="stylesheet"]').getAttribute("href"), "assets/styles.css?v=10");
+  assert.equal(document.querySelector('link[rel="stylesheet"]').getAttribute("href"), "assets/styles.css?v=11");
   assert.equal(document.documentElement.lang, "it");
 });
 

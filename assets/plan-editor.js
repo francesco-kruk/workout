@@ -330,6 +330,31 @@ function renderPersonalPlan(container) {
         field(exerciseGroup, "Nome esercizio", exercise, "name", { required: true });
         field(exerciseGroup, "Obiettivo / ripetizioni", exercise, "target", { required: true });
         if (day.type === "standard") {
+          const tracking = getExerciseTracking(exercise);
+          const modeLabel = textEl("label", "Tracciamento");
+          const mode = document.createElement("select");
+          for (const [value, label] of [["reps", "Ripetizioni"], ["seconds", "Durata (secondi)"]]) {
+            const option = textEl("option", label);
+            option.value = value;
+            option.selected = tracking.mode === value;
+            mode.appendChild(option);
+          }
+          mode.addEventListener("change", () => {
+            exercise.measurementMode = mode.value;
+            try { persist(); } catch (error) { showError(error); }
+          });
+          modeLabel.appendChild(mode);
+          const weightLabel = textEl("label", "Prevede un peso");
+          weightLabel.className = "tracking-weight";
+          const weight = document.createElement("input");
+          weight.type = "checkbox";
+          weight.checked = tracking.usesWeight;
+          weight.addEventListener("change", () => {
+            exercise.usesWeight = weight.checked;
+            try { persist(); } catch (error) { showError(error); }
+          });
+          weightLabel.appendChild(weight);
+          exerciseGroup.append(modeLabel, weightLabel);
           field(exerciseGroup, "Serie obbligatorie", exercise, "sets", { type: "number", min: 1, max: 30, required: true });
           field(exerciseGroup, "Serie opzionali", exercise, "optionalSets", { type: "number", min: 0, max: 30 });
           field(exerciseGroup, "Recupero in secondi (es. 60-90 secondi)", exercise, "rest");
@@ -397,7 +422,7 @@ function newWorkoutItem() {
   return { id: `item-${crypto.randomUUID()}`, name: "", target: "", instructions: "" };
 }
 function newWorkoutExercise() {
-  return { ...newWorkoutItem(), sets: 3, optionalSets: 0, rest: "" };
+  return { ...newWorkoutItem(), measurementMode: "reps", usesWeight: false, sets: 3, optionalSets: 0, rest: "" };
 }
 function newWorkoutDay() {
   return { id: `day-${crypto.randomUUID()}`, label: "", type: "standard", instructions: "", exercises: [newWorkoutExercise()] };

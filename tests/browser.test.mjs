@@ -269,12 +269,16 @@ test("actual workout buttons capture optional skips and AMRAP completion without
   let cleanup = w.renderWorkout(container, plan, () => {});
   const click = (label) => [...container.querySelectorAll("button")].find((button) => button.textContent === label).click();
   click("Riscaldamento completato");
+  const reps = container.querySelector('[data-actual-field="reps"]');
+  reps.value = "5";
+  reps.dispatchEvent(new w.Event("input", { bubbles: true }));
   click("Serie completata");
   click("Salta");
   assert.equal(w.pendingAttendance(alice).length, 1);
   assert.match(container.textContent, /in attesa/);
   click("Indietro");
-  click("Serie completata");
+  assert.equal(container.querySelector("[data-complete-set]").disabled, true);
+  click("Salta");
   assert.equal(w.pendingAttendance(alice).length, 1);
   cleanup();
   w.setCurrentSessionId("amrap");

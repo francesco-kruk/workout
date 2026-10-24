@@ -67,6 +67,7 @@ is not supported: there is no service worker.
    supabase/migrations/202610240002_consistency_ranking.sql
    supabase/migrations/202610240003_performance_tracking.sql
    supabase/migrations/202610240004_manual_workouts.sql
+   supabase/migrations/202610240005_exercise_tracking.sql
    ```
 
    Each migration runs once; apply only migrations not already deployed. Together
@@ -239,9 +240,13 @@ There is one current plan per user, with immutable prior versions:
 
 ### Recording actual performance
 
-In **Allenamento**, each standard-set card has **Risultato effettivo (facoltativo)**:
-enter **Peso (kg)** and choose **Ripetizioni** or **Durata (secondi)**, then press
-**Serie completata**. Log 20 kg today and 22 kg next time without editing the plan.
+In **Piano > Modifica piano**, configure each standard exercise's **Tracciamento**
+as **Ripetizioni** or **Durata (secondi)** and enable **Prevede un peso** when needed.
+These settings are fixed during training. In **Allenamento**, each standard-set
+card has **Risultato effettivo**: enter the configured reps or seconds and, only
+for weight-enabled exercises, **Peso (kg)**. **Serie completata** becomes available
+only once all required values are valid and saved locally. Log 20 kg today and
+22 kg next time without editing the plan.
 The prescribed target remains separate. **Ultima volta** is a read-only reference
 for the same set in the latest comparable recorded workout; it is never silently
 prefilled as today's performance.
@@ -253,12 +258,22 @@ Saved workouts are immutable; undo/recomplete does not rewrite a submitted resul
 Start a new run to record a new workout. New runs start with blank measurements.
 Changing future prescriptions still uses **Piano > Modifica piano**.
 
-Measurements are optional. Blank means unrecorded; explicit 0 kg means no external
+Standard-set measurements are required for explicit set completion. Blank blocks
+completion; explicit 0 kg means no external
 load, not measured body weight. Weight accepts 0–2000 kg with two decimals, reps and
 AMRAP extra reps accept integers 0–100000, and duration accepts integer seconds
 0–86400. The browser and database reject invalid values explicitly. No automatic
 unit/target parsing, assisted-load inference, or estimated 1RM is performed.
-Skipped sets and jump-ahead completion do not invent actual values.
+Skipped sets and jump-ahead completion do not invent actual values. Historical
+unrecorded values remain unrecorded. Supersets retain one result per exercise
+card; use a consistent logging convention for combined movements.
+
+After completing a standard set, a positive prescribed recovery replaces the
+exercise card and set actions. Pause/resume the timer or choose **Salta recupero**.
+When recovery expires, the next exercise/set appears automatically, including
+after returning to the tab or reloading the page. Sets with no recovery (or zero
+seconds) advance immediately; no recovery is started after the final step.
+Warmup and the AMRAP circuit timer are unchanged.
 
 AMRAP keeps the timer and full-round counter and adds **Ripetizioni extra**:
 the total completed repetitions after the last full circuit. These are displayed
@@ -319,6 +334,14 @@ only letters, digits, underscores, or hyphens (up to 80 characters).
 `warmup`, `constructor`, `prototype`, and `__proto__` are reserved.
 Text fields allow up to 4000 characters; the browser limits a compact JSON plan
 to 200000 characters. The editor generates IDs automatically.
+
+Standard exercises use `measurementMode: "reps" | "seconds"` and
+`usesWeight: true | false` for their tracking settings. New exercises default to
+reps without weight. Missing fields in older version-2 plans use the same defaults;
+targets are never parsed to guess a tracking mode or actual measurement. The
+repository example explicitly configures every standard exercise. Apply the
+exercise-tracking migration before deploying the updated frontend to validate
+these fields in Supabase as well as in the browser and validation script.
 
 ## Manual workouts and peer review
 
