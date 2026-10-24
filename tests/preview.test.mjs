@@ -78,6 +78,41 @@ test("local preview injects a demo adapter without changing the production entry
   }
   assert.ok(app.querySelector(".performance-chart"));
   assert.match(app.textContent, /Miglior risultato registrato|Massimi registrati/);
+  for (let attempt = 0; attempt < 100 && !app.querySelector(".manual-review"); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.match(app.textContent, /Esempio demo: corsa/);
+  click("Approva");
+  for (let attempt = 0; attempt < 100 && !/Voto salvato/.test(app.textContent); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.match(app.textContent, /Voto salvato.*Approvato/);
+  assert.equal(JSON.parse(w.localStorage.getItem("workout.preview.database")).manualWorkouts[0].status, "approved");
+  w.document.querySelector('[data-view="workout"]').click();
+  const currentId = w.getCurrentSessionId(w.workoutLibrary.snapshot().plan);
+  const submitManual = async (progression, description) => {
+    const form = app.querySelector("[data-manual-workout]");
+    assert.ok(form);
+    form.querySelector("textarea").value = description;
+    form.querySelector("select").value = progression;
+    form.dispatchEvent(new w.Event("submit", { cancelable: true }));
+    for (let attempt = 0; attempt < 100 && !app.querySelector("[data-manual-workout] textarea:not(:disabled)"); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.match(app.textContent, /Allenamento inviato in revisione/);
+  };
+  await submitManual("extra", "Demo: corsa extra 5 km");
+  assert.equal(w.getCurrentSessionId(w.workoutLibrary.snapshot().plan), currentId);
+  await submitManual("replace", "Demo: circuito a casa");
+  assert.notEqual(w.getCurrentSessionId(w.workoutLibrary.snapshot().plan), currentId);
+  const manualRows = JSON.parse(w.localStorage.getItem("workout.preview.database")).manualWorkouts;
+  assert.equal(manualRows.length, 3);
+  assert.equal(manualRows.at(-1).status, "pending");
+  w.document.querySelector('[data-view="profile"]').click();
+  for (let attempt = 0; attempt < 100 && !/Demo: circuito a casa/.test(app.textContent); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.match(app.textContent, /Demo: circuito a casa/);
   assert.match(app.querySelector(".profile-summary").textContent, /demo@example.test/);
   const passwordResult = await w.workoutSocial.updatePassword("DemoChanged123!", "Anteprima123!");
   assert.equal(passwordResult.ok, true);

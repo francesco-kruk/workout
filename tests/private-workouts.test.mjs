@@ -129,6 +129,7 @@ async function mount(t, {
       if (name === "workout_performance") return { data: performance || { series: [], results: [], more: false }, error: state.performanceError };
       if (name === "workout_previous") return { data: previous || null, error: state.performanceError };
       if (name === "workout_history") return { data: state.history, error: state.historyError };
+      if (name === "manual_workout_activity") return { data: [], error: null };
       if (name === "save_workout_plan") {
         if (args.p_user_id !== state.id) return { error: new Error("Membership required") };
         const previous = plans.get(state.id);

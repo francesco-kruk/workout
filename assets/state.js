@@ -17,7 +17,8 @@ function setWorkoutScope(userId, versionId) {
 }
 
 function getCurrentSessionId(plan) {
-  const stored = localStorage.getItem(workoutStorageKey(STORAGE_KEYS.currentSessionId));
+  const stored = readProgressStore().currentSessionId
+    || localStorage.getItem(workoutStorageKey(STORAGE_KEYS.currentSessionId));
   if (stored && plan.sessions.some((session) => session.id === stored)) {
     return stored;
   }
@@ -25,7 +26,37 @@ function getCurrentSessionId(plan) {
 }
 
 function setCurrentSessionId(sessionId) {
-  localStorage.setItem(workoutStorageKey(STORAGE_KEYS.currentSessionId), sessionId);
+  const store = readProgressStore();
+  store.currentSessionId = sessionId;
+  writeProgressStore(store);
+}
+
+function applyManualWorkoutProgress(plan, intent) {
+  const store = readProgressStore();
+  if (store.manualApplied?.[intent.id]) return;
+  if (getCurrentSessionId(plan) !== intent.sessionId || getProgress(intent.sessionId).runId !== intent.runId) {
+    throw new Error("Richiesta salvata, ma la giornata è cambiata. Il piano non è stato modificato.");
+  }
+  if (intent.replacesPlanned) {
+    const nextId = nextSessionId(plan, intent.sessionId);
+    store.sessions[intent.sessionId] = {
+      ...getStoredSession(store, intent.sessionId), restTimer: null,
+      amrap: getProgress(intent.sessionId).amrap,
+    };
+    store.sessions[nextId] = {
+      runId: crypto.randomUUID(), steps: {}, history: [], results: {},
+      amrap: normalizeAmrap(), restTimer: null,
+    };
+    store.currentSessionId = nextId;
+  } else {
+    const progress = getStoredSession(store, intent.sessionId);
+    progress.restTimer = null;
+    progress.amrap = getProgress(intent.sessionId).amrap;
+    store.sessions[intent.sessionId] = progress;
+  }
+  store.manualApplied = { ...store.manualApplied, [intent.id]: true };
+  // Progression and the retry marker must commit together.
+  writeProgressStore(store);
 }
 
 function getActiveView() {

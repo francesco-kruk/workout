@@ -1014,6 +1014,18 @@ body:not(.auth-entry) main {
   opacity: 0.75;
 }
 
+.manual-review {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+
+.manual-description {
+  white-space: pre-wrap;
+}
+
 .performance-chart {
   display: block;
   width: 100%;
