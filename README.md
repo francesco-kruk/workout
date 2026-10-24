@@ -22,7 +22,9 @@ Open `http://127.0.0.1:8765/`. This uses the real app UI with an approved demo
 account and a private-plan example. Create/edit/save plans, resume drafts, and
 try training/history without signing in to Supabase. Data persists only in this
 browser on this local origin. Ranking numbers are illustrative and do not
-recalculate when training. No production data or credentials are used; the
+recalculate when training or approving demo manual workouts. Profilo includes a
+sample manual request to approve/reject; your own manual submissions stay pending
+because the preview does not impersonate other voters. No production data or credentials are used; the
 preview adapter is injected only by this localhost server, not by GitHub Pages.
 The banner identifies preview mode. Use `PORT=8766 npm run preview` for another port.
 The profile shows the demo email; its initial password is `Anteprima123!`.
@@ -51,7 +53,8 @@ is not supported: there is no service worker.
 1. Create an owner-controlled [Supabase project](https://supabase.com/docs/guides/getting-started).
    Choose its region and review current pricing, retention, and privacy terms.
    The database stores member IDs/display names, private versioned plans, private
-   completed-workout measurements and shared attendance dates. Retired objective
+   completed-workout measurements, shared attendance dates, and shared manual-workout
+   descriptions, completion times, progression choices and review outcomes/votes. Retired objective
    tables are kept as inert legacy data, not active configuration. Email addresses stay
    in Supabase Auth and are not exposed by application tables.
 2. Apply these migrations **in order**, using the SQL Editor or your normal
@@ -63,13 +66,15 @@ is not supported: there is no service worker.
    supabase/migrations/202610240001_ranking_objectives.sql
    supabase/migrations/202610240002_consistency_ranking.sql
    supabase/migrations/202610240003_performance_tracking.sql
+   supabase/migrations/202610240004_manual_workouts.sql
    ```
 
    Each migration runs once; apply only migrations not already deployed. Together
    they create the private group, membership
    rules, immutable per-user plans, private history, and atomic result/attendance
    submissions, universal weekly consistency scoring, and private performance
-   tracking. The historical objectives migration is still required in the chain;
+   tracking, plus peer-reviewed manual workouts. Deploy the manual-workout migration
+   before publishing the frontend that uses it. The historical objectives migration is still required in the chain;
    the following migration retires its public workflow. No existing attendance
    is discarded or invented.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
@@ -174,6 +179,9 @@ Use Supabase administration to remove a member or correct/delete attendance.
 Deleting a `friend_members` row cascades that member's attendance. Removing a
 member does not remove their Auth account; manage that separately in Auth.
 Removing membership also cascades their private plans and completed history.
+It also deletes their manual submissions; pending requests for which the departing
+member was an eligible voter are rejected. Already-approved attendance for other
+members is retained.
 
 ## Personal workout plans and history
 
@@ -311,6 +319,53 @@ only letters, digits, underscores, or hyphens (up to 80 characters).
 `warmup`, `constructor`, `prototype`, and `__proto__` are reserved.
 Text fields allow up to 4000 characters; the browser limits a compact JSON plan
 to 200000 characters. The editor generates IDs automatically.
+
+## Manual workouts and peer review
+
+In **Allenamento**, open **Allenamento alternativo / manuale** on an unfinished
+planned day after finishing an alternative activity, such as a run or home workout.
+Enter a nonempty description (maximum 2,000 characters) and explicitly choose:
+
+- **Sostituisci:** replace the planned day and advance to a fresh next day once the
+  submission succeeds. This does not mark the planned exercises as completed.
+- **Extra:** keep the uncompleted planned day next, preserving its partial progress.
+
+Active timers stop on successful submission. Plan progression is local to the
+current device, like ordinary workout progress; votes never advance or roll back
+the plan, including when a request is rejected. If the user changes day, run or
+plan while an upload is in flight, the app does not overwrite the newer progress.
+Submission and voting require an approved account and connectivity. Manual requests
+do not enter the normal offline attendance queue. A retained submission ID supports
+**Recupera / riprova lo stesso invio** after an uncertain response without creating
+a duplicate; recover using the original account and plan.
+
+The server records the completion timestamp on the first accepted submission:
+there is no editable date or backdating control. Retries preserve the original
+request and timestamp. The description, completion time, replace/extra choice,
+review counts and outcome are shared review data, **not private exercise history**.
+Do not include confidential information. The associated private plan, planned-day
+definition and exercise measurements are not exposed to reviewers.
+
+**Profilo > Allenamenti manuali** lists requests awaiting your vote and your own
+submissions, with pagination and refresh controls. Requests and votes cannot be
+edited or withdrawn. All other approved members at submission form a fixed
+electorate; the submitter cannot vote. Approval requires
+`floor(number of eligible voters / 2) + 1` approvals, not merely a majority of
+votes cast. Approve as soon as that threshold is reached; reject as soon as it
+becomes impossible, including ties. There is no automatic expiry: unanswered
+requests can remain pending. With no other members, submission is refused.
+New members cannot vote on older requests, and removing an eligible voter rejects
+affected pending requests without changing the original threshold.
+
+Pending/rejected requests earn no attendance or points. Approval atomically
+credits the **completion date in Europe/Rome**, not the approval date, through the
+same attendance rules below. There is still at most one credited day per user/date,
+even with several approved manual or planned workouts. Late approval can restore
+an earlier weekly streak and recalculate subsequent multipliers; a prior-month
+completion stays in that month's score. Manual descriptions do not create invented
+weights, repetitions or AMRAP performance data. Peer review assesses a member's
+claim; it is not independent proof of exercise and does not change the existing
+trust model for ordinary planned workouts.
 
 ## Punti Aura and universal weekly consistency
 

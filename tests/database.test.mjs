@@ -27,6 +27,7 @@ await db.exec(await readFile(new URL("../supabase/migrations/202610210002_privat
 await db.exec(await readFile(new URL("../supabase/migrations/202610240001_ranking_objectives.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240002_consistency_ranking.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240003_performance_tracking.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240004_manual_workouts.sql", import.meta.url), "utf8"));
 after(() => db.close());
 
 beforeEach(async () => {
@@ -401,6 +402,10 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
     },
     rpc: async (name, args) => {
       try {
+        if (name === "manual_workout_activity") return {
+          data: (await db.query("select public.manual_workout_activity($1,$2,$3) as data",
+            [args.p_own, args.p_before_completed_at, args.p_before_id])).rows[0].data, error: null,
+        };
         if (name === "submit_gym_day") {
           const result = await submit(args.p_completed_at, {
             user: args.p_user_id, event: args.p_event_id,

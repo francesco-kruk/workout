@@ -14,8 +14,11 @@ function renderProgress(container, { embedded = false } = {}) {
   const ranking = document.createElement("section");
   const performance = document.createElement("section");
   performance.className = "social-panel personal-performance";
-  container.append(performance, personal, monthly, ranking, history);
+  const manual = document.createElement("section");
+  manual.className = "social-panel";
+  container.append(performance, personal, monthly, ranking, manual, history);
   const cleanupPerformance = renderPerformance(performance);
+  const cleanupManual = window.renderManualWorkouts?.(manual);
 
   function update() {
     const library = window.workoutLibrary.snapshot();
@@ -76,6 +79,7 @@ function renderProgress(container, { embedded = false } = {}) {
     for (const event of events) window.removeEventListener(event, update);
     cleanupRanking();
     cleanupPerformance();
+    cleanupManual?.();
   };
 }
 

@@ -52,6 +52,8 @@ function renderLeaderboard(container, { embedded = false, showProfile = true } =
     "Completa tutte le attività obbligatorie; completa o salta le serie opzionali. " +
     "Più allenamenti nella stessa data danno una sola presenza. La classifica riparte ogni mese, la sequenza continua. " +
     "Le presenze offline mantengono la data originale e possono ricalcolare la continuità e i punteggi successivi. " +
+    "Gli allenamenti manuali contano solo dopo l'approvazione della maggioranza degli altri membri: " +
+    "parità significa rifiuto. I punti usano la data del completamento, non quella del voto. " +
     "Accedi prima di allenarti e non cancellare i dati del browser prima della sincronizzazione. " +
     "Pesi, ripetizioni e risultati individuali restano privati e non influenzano i punti.", "view-description"));
   container.append(status, refresh, standings);

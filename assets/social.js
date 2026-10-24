@@ -468,6 +468,43 @@ window.workoutSocial = (() => {
     return data;
   }
 
+  async function manualRpc(name, args) {
+    requireMember();
+    if (!navigator.onLine) throw new Error("Torna online per inviare o votare un allenamento manuale.");
+    const revision = identityRevision;
+    const data = check(await client.rpc(name, args));
+    if (revision !== identityRevision) throw new Error("Account cambiato durante la richiesta. Riprova con l'account originale.");
+    return data;
+  }
+
+  async function submitManualWorkout(intent) {
+    const row = await manualRpc("submit_manual_workout", {
+      p_id: intent.id, p_plan_version_id: intent.planVersionId, p_session_id: intent.sessionId,
+      p_description: intent.description, p_replaces_planned: intent.replacesPlanned,
+    });
+    if (!row || row.id !== intent.id || !Number.isFinite(Date.parse(row.completed_at))) {
+      throw new Error("Risposta dell'invio manuale non valida. Riprova senza cambiare richiesta.");
+    }
+    return row;
+  }
+
+  async function fetchManualWorkouts(own, cursor = null) {
+    const rows = await manualRpc("manual_workout_activity", {
+      p_own: own, p_before_completed_at: cursor?.completed_at || null, p_before_id: cursor?.id || null,
+    });
+    if (!Array.isArray(rows)) throw new Error("Risposta delle revisioni non valida.");
+    return rows;
+  }
+
+  async function voteManualWorkout(id, approve) {
+    const row = await manualRpc("vote_manual_workout", { p_id: id, p_approve: approve });
+    if (!row || row.id !== id) throw new Error("Risposta del voto non valida. Riprova lo stesso voto.");
+    try { await loadLeaderboard(); }
+    catch (error) { fail(error, "Voto salvato, classifica non aggiornata. Riprova l'aggiornamento."); }
+    return row;
+  }
+
   return { init, snapshot, refresh, signIn, signUp, signOut, saveName, updateEmail, updatePassword, recordCompletion, completionMessage, reportError: fail,
-    fetchPersonalPlan, savePersonalPlan, fetchWorkoutHistory, fetchPerformance, fetchPrevious };
+    fetchPersonalPlan, savePersonalPlan, fetchWorkoutHistory, fetchPerformance, fetchPrevious,
+    submitManualWorkout, fetchManualWorkouts, voteManualWorkout };
 })();

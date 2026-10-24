@@ -2,6 +2,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
   let timerId = null;
   let timerCleanup = null;
   let active = true;
+  let manualNotice = "";
   function updateSocialStatus() {
     const status = container.querySelector("[data-social-status]");
     if (status) {
@@ -10,6 +11,13 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
   }
   window.addEventListener("workout-social-change", updateSocialStatus);
+  function manualCompleted(event) {
+    if (!active) return;
+    manualNotice = event.detail.message;
+    renderCurrent();
+  }
+  window.addEventListener("workout-manual-complete", manualCompleted);
+  window.addEventListener("workout-manual-will-complete", stopTimer);
 
   function stopTimer() {
     if (timerId !== null) {
@@ -36,6 +44,11 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
 
     const summary = getSessionSummary(plan, session);
+    if (manualNotice) {
+      const notice = textEl("p", manualNotice, "social-status");
+      notice.setAttribute("role", "status");
+      container.appendChild(notice);
+    }
     container.appendChild(
       createSessionHeading(
         session,
@@ -44,6 +57,10 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     );
     container.appendChild(renderJumpControls(session, summary));
     container.appendChild(createProgress(summary, "step completati"));
+    if (!summary.complete && !hasRecordedWorkout(summary.progress.runId)) {
+      const manual = window.renderManualWorkoutForm?.(plan, session);
+      if (manual) container.appendChild(manual);
+    }
 
     if (summary.currentIndex < 0) {
       if (session.type !== "amrap" && summary.progress.restTimer) {
@@ -701,6 +718,8 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     active = false;
     stopTimer();
     window.removeEventListener("workout-social-change", updateSocialStatus);
+    window.removeEventListener("workout-manual-complete", manualCompleted);
+    window.removeEventListener("workout-manual-will-complete", stopTimer);
   };
 }
 

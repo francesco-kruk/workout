@@ -55,7 +55,7 @@
     }).sort((a, b) => b.completed_at.localeCompare(a.completed_at) || b.id.localeCompare(a.id));
   }
 
-  const banner = textEl("p", "Anteprima locale · account e classifica dimostrativi. Modifiche salvate solo in questo browser; nessun dato inviato al server. Password demo iniziale: Anteprima123! (ripristinata al ricaricamento). Non usare credenziali reali.", "social-panel preview-banner");
+  const banner = textEl("p", "Anteprima locale · account, voti e classifica dimostrativi. La classifica non ricalcola i punti. Modifiche salvate solo in questo browser; nessun dato inviato al server. Password demo iniziale: Anteprima123! (ripristinata al ricaricamento). Non usare credenziali reali.", "social-panel preview-banner");
   document.body.prepend(banner);
   window.WORKOUT_SOCIAL_CONFIG = { url: "http://127.0.0.1", publishableKey: "local-preview-only" };
 
@@ -90,6 +90,16 @@
       persist();
     }
     database.email ||= "demo@example.test";
+    if (!database.manualWorkouts) {
+      database.manualWorkouts = [{
+        id: crypto.randomUUID(), user_id: "00000000-0000-4000-8000-000000000002",
+        display_name: "Amico demo", description: "Esempio demo: corsa di 5 km al parco.",
+        replaces_planned: false, completed_at: new Date().toISOString(), status: "pending",
+        decided_at: null, reason: null, voters: 2, required_approvals: 2,
+        approvals: 1, rejections: 0, own_vote: null, eligible: true,
+      }];
+      persist();
+    }
     const client = {
       auth: {
         getSession: async () => ok({ session: session() }),
@@ -137,6 +147,58 @@
       },
       rpc: async (name, args = {}) => {
         if (!signedIn) throw new Error("Accedi all'anteprima.");
+        if (name === "submit_manual_workout") {
+          const existing = database.manualWorkouts.find((row) => row.id === args.p_id);
+          if (existing) {
+            if (existing.description !== args.p_description.trim()
+              || existing.replaces_planned !== args.p_replaces_planned
+              || existing.plan_version_id !== args.p_plan_version_id || existing.session_id !== args.p_session_id) {
+              throw new Error("Submission ID already used");
+            }
+            return ok(existing);
+          }
+          const plan = database.plans.find((p) => p.id === args.p_plan_version_id);
+          if (!plan?.definition.sessions.some((s) => s.id === args.p_session_id)
+            || !args.p_description.trim() || args.p_description.trim().length > 2000
+            || typeof args.p_replaces_planned !== "boolean") {
+            throw new Error("Invio manuale non valido.");
+          }
+          const row = {
+            id: args.p_id, user_id: userId, display_name: database.name,
+            plan_version_id: args.p_plan_version_id, session_id: args.p_session_id,
+            description: args.p_description.trim(), replaces_planned: args.p_replaces_planned,
+            completed_at: new Date().toISOString(), status: "pending", decided_at: null,
+            reason: null, voters: 2, required_approvals: 2, approvals: 0, rejections: 0, own_vote: null, eligible: false,
+          };
+          database.manualWorkouts.push(row);
+          persist();
+          return ok(row);
+        }
+        if (name === "manual_workout_activity") {
+          const rows = database.manualWorkouts.filter((row) => args.p_own
+            ? row.user_id === userId : row.eligible && row.status === "pending" && row.own_vote === null)
+            .sort((a, b) => b.completed_at.localeCompare(a.completed_at) || b.id.localeCompare(a.id));
+          const cursor = args.p_before_id ? rows.findIndex((row) => row.id === args.p_before_id) + 1 : 0;
+          return ok(rows.slice(cursor, cursor + 20).map(({ plan_version_id, session_id, ...row }) =>
+            ({ ...row, display_name: row.user_id === userId ? database.name : row.display_name })));
+        }
+        if (name === "vote_manual_workout") {
+          const row = database.manualWorkouts.find((row) => row.id === args.p_id);
+          if (!row?.eligible || row.user_id === userId) throw new Error("Not eligible to vote");
+          if (row.own_vote !== null) {
+            if (row.own_vote !== args.p_approve) throw new Error("Votes cannot be changed");
+            return ok(row);
+          }
+          if (row.status !== "pending") throw new Error("Review is no longer pending");
+          row.own_vote = args.p_approve;
+          if (args.p_approve) row.approvals += 1;
+          else row.rejections += 1;
+          if (row.approvals >= row.required_approvals) row.status = "approved";
+          else if (row.voters - row.rejections < row.required_approvals) row.status = "rejected";
+          if (row.status !== "pending") row.decided_at = new Date().toISOString();
+          persist();
+          return ok(row);
+        }
         if (name === "friends_leaderboard") {
           const today = dateLabel(new Date());
           const monday = new Date(`${today}T12:00:00Z`);
