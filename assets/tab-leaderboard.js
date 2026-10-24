@@ -1,16 +1,16 @@
-function renderLeaderboard(container) {
+function renderLeaderboard(container, { embedded = false } = {}) {
   const social = window.workoutSocial;
   container.replaceChildren();
   container.append(
-    textEl("p", "Il gruppo degli amici", "cycle-label"),
-    textEl("h2", "Classifica"),
+    textEl(embedded ? "h3" : "h2", "Classifica"),
     textEl("p", "La costanza conta, una giornata alla volta.", "view-description")
   );
 
   const status = textEl("p", "", "social-status");
   status.setAttribute("role", "status");
-  const account = document.createElement("section");
+  const account = document.createElement("details");
   account.className = "social-panel";
+  account.appendChild(textEl("summary", "Profilo nel gruppo"));
   const memberStatus = textEl("p", "", "view-description");
   const profile = document.createElement("form");
   const nameLabel = textEl("label", "Il tuo nome in classifica");
@@ -27,11 +27,11 @@ function renderLeaderboard(container) {
     void social.saveName(name.value);
   });
   const actions = document.createElement("div");
-  actions.className = "workout-actions";
+  actions.className = "editor-actions";
   const refresh = createButton("Aggiorna / riprova", "btn btn-primary");
   refresh.addEventListener("click", () => { void social.refresh(); });
   actions.append(refresh);
-  account.append(memberStatus, profile, actions);
+  account.append(memberStatus, profile);
 
   const standings = document.createElement("section");
   standings.className = "social-panel";
@@ -71,7 +71,7 @@ function renderLeaderboard(container) {
   const ruleDetails = document.createElement("details");
   ruleDetails.className = "social-panel";
   ruleDetails.append(textEl("summary", "Regole e sincronizzazione"), rules);
-  container.append(status, standings, account, ruleDetails);
+  container.append(status, actions, standings, account, ruleDetails);
   let displayedUser = null;
   let displayedName = null;
 

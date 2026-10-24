@@ -748,7 +748,7 @@ main {
   left: 12px;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   width: min(calc(100% - 24px), 724px);
   margin: 0 auto;
   padding: 6px;
@@ -844,6 +844,75 @@ main {
 
 .plan-editor .btn {
   margin: 4px 0;
+}
+
+.plan-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.plan-switch .btn {
+  padding-right: 10px;
+  padding-left: 10px;
+}
+
+.plan-content {
+  margin-top: 20px;
+}
+
+.plan-day summary,
+.workout-history summary,
+.editor-section > summary {
+  cursor: pointer;
+  padding: 12px 0;
+  font-weight: 800;
+}
+
+.plan-day .plan-session {
+  border: 0;
+  margin: 0;
+  padding: 16px 0 0;
+  box-shadow: none;
+}
+
+.editor-section {
+  min-width: 0;
+  margin: 12px 0;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.progress-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.progress-metrics div {
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-raised);
+}
+
+.progress-metrics dt {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.progress-metrics dd {
+  margin: 4px 0 0;
+  color: var(--accent);
+  font-size: 1.3rem;
+  font-weight: 800;
+}
+
+button:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .social-status {

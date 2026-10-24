@@ -1,16 +1,15 @@
-function renderPlan(container, plan) {
+function renderPlan(container, plan, onInspectDay) {
   container.replaceChildren();
 
   const intro = document.createElement("section");
   intro.className = "view-intro";
   intro.append(
-    textEl("p", "Panoramica completa", "cycle-label"),
-    textEl("h2", plan.title)
+    textEl("h3", "Tutte le giornate")
   );
   intro.appendChild(
     textEl(
       "p",
-      `${plan.sessions.length} giornate · consultazione senza modifiche`,
+      `${plan.sessions.length} giornate · apri una giornata per i dettagli`,
       "view-description"
     )
   );
@@ -30,7 +29,16 @@ function renderPlan(container, plan) {
   const sessions = document.createElement("div");
   sessions.className = "plan-sessions";
   plan.sessions.forEach((session, index) => {
-    sessions.appendChild(renderPlanSession(session, index, plan.sessions.length));
+    const details = document.createElement("details");
+    details.className = "overview-card plan-day";
+    details.appendChild(textEl("summary", `${index + 1}. ${session.label} · ${session.exercises.length} esercizi`));
+    if (onInspectDay) {
+      const inspect = createButton("Vedi giornata", "btn btn-secondary");
+      inspect.addEventListener("click", () => onInspectDay(session.id));
+      details.appendChild(inspect);
+    }
+    details.appendChild(renderPlanSession(session, index, plan.sessions.length));
+    sessions.appendChild(details);
   });
   container.appendChild(sessions);
 }

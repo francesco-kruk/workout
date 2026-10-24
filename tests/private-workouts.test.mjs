@@ -48,7 +48,8 @@ async function mount(t, {
   w.console.error = () => {};
   const state = { id: signedIn ? alice : null, plans, planError, calls: [], history: [], records: new Map(),
     approved, membershipError, beforeSession, beforeMembership, beforePlan, beforeRpc: null, authError: null,
-    credentialError: null, beforeAuth: null, authCalls: 0, signupNeedsConfirmation: false, emitAuthEvents: true };
+    credentialError: null, beforeAuth: null, authCalls: 0, signupNeedsConfirmation: false, emitAuthEvents: true,
+    rows: [], historyError: null };
   for (const entry of plans.values()) state.records.set(entry.id, entry);
   for (const [key, value] of Object.entries(storage)) w.localStorage.setItem(key, value);
   for (const file of scripts.filter((file) => file !== "app.js")) w.eval(source.get(file));
@@ -98,8 +99,8 @@ async function mount(t, {
     rpc: async (name, args) => {
       state.calls.push({ name, args });
       if (state.beforeRpc) await state.beforeRpc(name, args);
-      if (name === "friends_leaderboard") return { data: [], error: null };
-      if (name === "workout_history") return { data: state.history, error: null };
+      if (name === "friends_leaderboard") return { data: state.rows, error: null };
+      if (name === "workout_history") return { data: state.history, error: state.historyError };
       if (name === "save_workout_plan") {
         if (args.p_user_id !== state.id) return { error: new Error("Membership required") };
         const previous = plans.get(state.id);
@@ -349,7 +350,7 @@ test("session restoration waits for identity, membership and private plan withou
   releasePlan();
   await mounting;
   assert.equal(w.document.querySelector(".app-nav").hidden, false);
-  assert.equal(w.getActiveView(), "leaderboard");
+  assert.equal(w.getActiveView(), "progress");
   assert.equal(w.workoutLibrary.snapshot().record.id, a.id);
   assert.equal(w.document.querySelector('input[type="email"]'), null);
   assert.equal(w.document.querySelector("#sign-out").hidden, false);
@@ -536,6 +537,7 @@ test("one shared URL loads different private plans, without copying guest progre
   assert.equal(w.workoutLibrary.snapshot().plan.title, "Scheda Alice");
   const guestAfterBoot = w.localStorage.getItem("workout.progress");
   assert.equal(Object.keys(w.getProgress("strength").steps).length, 0);
+  navigate(w, "workout");
   click(w, "Riscaldamento completato");
   assert.equal(w.getProgress("strength").steps["warmup:warm"], "completed");
   const oldStorage = w.localStorage.getItem(`workout.progress:${alice}:${a.id}`);
@@ -596,9 +598,10 @@ test("offline editor drafts survive reload; publication creates a new version an
   const original = record(alice, "Prima versione");
   const plans = new Map([[alice, original]]);
   const { w } = await mount(t, { plans });
+  navigate(w, "workout");
   click(w, "Riscaldamento completato");
   navigate(w, "plan");
-  click(w, "Modifica / crea");
+  click(w, "Modifica piano");
   input(w, "Titolo della scheda", "Seconda versione");
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
   w.document.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
@@ -608,6 +611,8 @@ test("offline editor drafts survive reload; publication creates a new version an
   assert.equal(w.workoutLibrary.getDraft().definition.title, "Seconda versione");
   const second = await mount(t, { plans, storage: snapshotStorage(w) });
   navigate(second.w, "plan");
+  assert.equal(second.w.document.querySelector(".plan-editor"), null);
+  click(second.w, "Riprendi modifica");
   assert.ok(second.w.document.querySelector(".plan-editor"));
   assert.equal(second.w.workoutLibrary.getDraft().definition.title, "Seconda versione");
   second.w.document.querySelector(".plan-editor").dispatchEvent(new second.w.Event("submit", { cancelable: true }));
@@ -645,7 +650,7 @@ test("an invalid JSON import shows errors without overwriting an existing person
   const original = record(alice, "Originale");
   const { w } = await mount(t, { plans: new Map([[alice, original]]) });
   navigate(w, "plan");
-  click(w, "Modifica / crea");
+  click(w, "Modifica piano");
   const file = w.document.querySelector('input[type="file"]');
   Object.defineProperty(file, "files", { value: [{ size: 20, text: async () => '{"version":2}' }] });
   file.dispatchEvent(new w.Event("change"));
@@ -662,6 +667,7 @@ test("a cached personal plan remains usable during a backend outage, with an exp
   });
   assert.equal(w.workoutLibrary.snapshot().record.id, cached.id);
   assert.match(w.document.querySelector("#account-status").textContent, /Network unavailable/);
+  navigate(w, "workout");
   click(w, "Riscaldamento completato");
   assert.match(app.textContent, /Squat/);
 });
@@ -669,6 +675,7 @@ test("a cached personal plan remains usable during a backend outage, with an exp
 test("a newer remote version never replaces an in-progress local workout without an explicit choice", async (t) => {
   const original = record(alice, "In corso");
   const { w, state } = await mount(t, { plans: new Map([[alice, original]]) });
+  navigate(w, "workout");
   click(w, "Riscaldamento completato");
   const latest = { ...record(alice, "Aggiornata altrove"), revision: 2 };
   state.plans.set(alice, latest);
@@ -676,7 +683,7 @@ test("a newer remote version never replaces an in-progress local workout without
   assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
   assert.equal(w.workoutLibrary.snapshot().availableRecord.id, latest.id);
   navigate(w, "plan");
-  click(w, "Usa versione aggiornata (progressi separati)");
+  click(w, "Usa piano aggiornato");
   assert.equal(w.workoutLibrary.snapshot().record.id, latest.id);
   assert.equal(Object.keys(w.getProgress("strength").steps).length, 0);
   assert.ok(w.localStorage.getItem(`workout.progress:${alice}:${original.id}`));
@@ -686,6 +693,7 @@ test("personal completions queue full result snapshots offline and synchronize i
   const original = record(alice, "Scheda storica");
   const { w, state } = await mount(t, { plans: new Map([[alice, original]]) });
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
+  navigate(w, "workout");
   click(w, "Riscaldamento completato");
   click(w, "Serie completata");
   click(w, "Serie completata");
@@ -701,8 +709,7 @@ test("personal completions queue full result snapshots offline and synchronize i
   const submission = state.calls.find((call) => call.name === "submit_workout_result");
   assert.equal(submission.args.p_completed_at, completedAt);
   assert.equal(state.calls.filter((call) => call.name === "submit_gym_day").length, 0);
-  navigate(w, "plan");
-  click(w, "Storico");
+  navigate(w, "progress");
   await until(() => !w.workoutLibrary.snapshot().historyLoading);
   assert.match(w.document.body.textContent, /Scheda storica \(v1\)/);
   assert.match(w.document.body.textContent, /Squat, serie 3 · 5 ripetizioni: Saltato/);
@@ -751,7 +758,7 @@ test("private plans still load when the public example is unavailable", async (t
   const { w, app } = await mount(t, { plans: new Map([[alice, original]]), templateError: new Error("404") });
   assert.equal(w.workoutLibrary.snapshot().plan.title, "Solo Supabase");
   assert.match(app.textContent, /Riscaldamento/);
-  navigate(w, "leaderboard");
+  navigate(w, "progress");
   assert.match(app.textContent, /Classifica/);
 });
 
@@ -786,4 +793,207 @@ test("a stale fetch cannot downgrade a newly published version", async (t) => {
   await fetch;
   assert.equal(w.workoutLibrary.snapshot().record.revision, 2);
   assert.equal(w.workoutLibrary.snapshot().loading, false);
+});
+
+test("three-tab navigation migrates old selections and defaults to Plan", async (t) => {
+  for (const [stored, expected] of [
+    ["day", "plan"], ["leaderboard", "progress"], ["workout", "workout"],
+    ["progress", "progress"], ["invalid", "plan"], [null, "plan"],
+  ]) {
+    const { w } = await mount(t, {
+      plans: new Map([[alice, record(alice, "Piano")]]),
+      storage: stored ? { "workout.activeView": stored } : {},
+    });
+    assert.deepEqual([...w.document.querySelectorAll(".app-nav button")].map((button) => button.dataset.view),
+      ["plan", "workout", "progress"]);
+    assert.equal(w.getActiveView(), expected);
+    assert.equal(w.document.querySelector('.app-nav [aria-current="page"]').dataset.view, expected);
+    if (stored === "day" || stored === "leaderboard") assert.equal(w.localStorage.getItem("workout.activeView"), expected);
+  }
+});
+
+test("Plan browses daily and full views without mutating the active workout", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Il mio piano")]]) });
+  w.setStepStatus("strength", "warmup:warm", "completed");
+  navigate(w, "plan");
+  assert.equal(app.querySelector('[aria-pressed="true"]').textContent, "Oggi");
+  assert.equal(app.querySelector('[role="progressbar"]').getAttribute("aria-valuenow"), "33");
+  assert.doesNotMatch(app.textContent, /Aggiorna dal server|Storico|versione/);
+  const before = snapshotStorage(w);
+  const select = app.querySelector('select[aria-label="Consulta una giornata"]');
+  select.value = "circuit";
+  select.dispatchEvent(new w.Event("change"));
+  assert.match(app.textContent, /Piegamenti/);
+  assert.match(app.textContent, /allenamento attivo non cambia/);
+  assert.equal(w.getCurrentSessionId(definition), "strength");
+  assert.deepEqual(snapshotStorage(w), before);
+  click(w, "Piano completo");
+  assert.equal(app.querySelectorAll(".plan-day").length, 2);
+  assert.equal(app.querySelector(".plan-day").open, false);
+  assert.equal(app.querySelectorAll(".view-intro").length, 1);
+  app.querySelectorAll(".plan-day button")[1].click();
+  assert.equal(app.querySelector('select[aria-label="Consulta una giornata"]').value, "circuit");
+  click(w, "Torna a oggi");
+  assert.equal(app.querySelector('select[aria-label="Consulta una giornata"]').value, "strength");
+  navigate(w, "workout");
+  assert.match(app.textContent, /Forza/);
+  assert.match(app.textContent, /Squat/);
+});
+
+test("editor is explicit, keeps drafts on return, and reveals invalid collapsed fields", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Piano")]]) });
+  assert.equal(app.querySelector(".plan-editor"), null);
+  click(w, "Modifica piano");
+  assert.equal(app.querySelector(".editor-day").open, false);
+  const file = app.querySelector('input[type="file"]');
+  assert.equal(file.closest("details").open, false);
+  input(w, "Titolo della scheda", "Bozza conservata");
+  const exercise = input(w, "Nome esercizio", "");
+  assert.equal(exercise.closest("details").open, false);
+  assert.equal(app.querySelector("form").checkValidity(), false);
+  let ancestor = exercise.parentElement;
+  while (ancestor.tagName !== "FORM") {
+    if (ancestor.tagName === "DETAILS") assert.equal(ancestor.open, true);
+    ancestor = ancestor.parentElement;
+  }
+  input(w, "Nome esercizio", "Squat modificato");
+  click(w, "Aggiungi giornata");
+  assert.equal([...app.querySelectorAll(".editor-day")].at(-1).open, true);
+  click(w, "Torna al piano");
+  assert.equal(app.querySelector(".plan-editor"), null);
+  assert.match(app.textContent, /Riprendi modifica/);
+  assert.equal(w.workoutLibrary.getDraft().definition.title, "Bozza conservata");
+  navigate(w, "progress");
+  navigate(w, "plan");
+  assert.equal(app.querySelector(".plan-editor"), null);
+  click(w, "Riprendi modifica");
+  assert.equal(app.querySelector("input").value, "Bozza conservata");
+});
+
+test("Progress separates local completion and pending results from monthly synchronized metrics", async (t) => {
+  const { w, state, app } = await mount(t, { plans: new Map([[alice, record(alice, "Piano")]]) });
+  state.rows = [{
+    user_id: alice, display_name: "Amico", gym_days: 2, points: 22.5,
+    current_streak: 2, multiplier: 1.25, position: 1, month_start: "2026-10-01",
+  }];
+  await w.workoutSocial.refresh();
+  Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
+  navigate(w, "workout");
+  for (const label of ["Riscaldamento completato", "Serie completata", "Serie completata", "Salta"]) click(w, label);
+  navigate(w, "progress");
+  await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
+  assert.equal(app.querySelector(".personal-progress [role=progressbar]").getAttribute("aria-valuenow"), "100");
+  assert.deepEqual([...app.querySelectorAll(".progress-metrics dd")].map((cell) => cell.textContent),
+    ["2", "22,5", "2 allenamenti", "1,25×"]);
+  assert.match(app.textContent, /ottobre 2026/);
+  assert.match(app.querySelector(".workout-history").textContent, /1 allenamenti locali in attesa/);
+  assert.match(app.querySelector(".workout-history").textContent, /Non ancora inclusi/);
+  assert.equal(app.querySelectorAll(".leaderboard-self").length, 1);
+  assert.equal(app.querySelector("details.social-panel").open, false);
+  assert.equal(w.pendingAttendance(alice).length, 1);
+});
+
+test("schema validation reveals collapsed editor sections and keeps the active plan unchanged", async (t) => {
+  const original = record(alice, "Piano attivo");
+  const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  click(w, "Modifica piano");
+  input(w, "Recupero in secondi (es. 60-90 secondi)", "non valido");
+  assert.equal(app.querySelector(".editor-day").open, false);
+  app.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  assert.match(app.querySelector(".social-status").textContent, /recupero da 0 a 3600/);
+  assert.equal(app.querySelectorAll(".editor-section:not([open])").length, 0);
+  assert.equal(w.document.activeElement, app.querySelector(".social-status"));
+  assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
+  assert.ok(w.workoutLibrary.getDraft());
+});
+
+test("an existing plan exposes editing and blank replacement without losing the active plan or draft", async (t) => {
+  const original = record(alice, "Piano attuale");
+  const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  const edit = [...app.querySelectorAll("button")].find((button) => button.textContent === "Modifica piano");
+  assert.ok(edit.classList.contains("btn-primary"));
+  click(w, "Nuovo piano");
+  assert.equal(w.workoutLibrary.getDraft().definition.title, "La mia scheda");
+  assert.equal(w.workoutLibrary.getDraft().definition.sessions.length, 1);
+  assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
+  input(w, "Titolo della scheda", "Nuovo piano in bozza");
+  click(w, "Torna al piano");
+  assert.match(app.textContent, /Piano attuale/);
+  assert.equal([...app.querySelectorAll("button")].find((button) => button.textContent === "Nuovo piano").disabled, true);
+  click(w, "Riprendi modifica");
+  assert.equal(app.querySelector("input").value, "Nuovo piano in bozza");
+  click(w, "Scarta bozza e ricarica");
+  await until(() => !w.workoutLibrary.snapshot().loading);
+  assert.equal(w.workoutLibrary.getDraft(), null);
+  assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
+  assert.equal([...app.querySelectorAll("button")].find((button) => button.textContent === "Nuovo piano").disabled, false);
+});
+
+test("Progress works without a plan and handles history errors and retry without inventing totals", async (t) => {
+  const { w, state, app } = await mount(t);
+  state.historyError = new Error("History unavailable");
+  navigate(w, "progress");
+  await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
+  assert.match(app.querySelector(".personal-progress").textContent, /Crea un piano/);
+  assert.match(app.textContent, /History unavailable/);
+  assert.equal(app.querySelector(".progress-metrics"), null);
+  assert.doesNotMatch(app.querySelector(".workout-history").textContent, /Nessun allenamento sincronizzato/);
+  state.historyError = null;
+  click(w, "Aggiorna storico");
+  await until(() => !w.workoutLibrary.snapshot().historyLoading);
+  assert.match(app.querySelector(".workout-history").textContent, /Nessun allenamento sincronizzato/);
+  assert.doesNotMatch(app.textContent, /History unavailable/);
+});
+
+test("Progress paginates private history, preserves original definitions, and cleans up on navigation", async (t) => {
+  const { w, state, app } = await mount(t, { plans: new Map([[alice, record(alice, "Piano nuovo")]]) });
+  const historical = (index) => ({
+    id: String(index), completed_at: `2026-10-${String(24 - index).padStart(2, "0")}T12:00:00Z`,
+    revision: 1, plan_title: "Piano originale", warmup: definition.warmup,
+    session: definition.sessions[1], steps: { "warmup:warm": "completed", "circuit:amrap": "completed" },
+    amrap_rounds: 7,
+  });
+  state.history = Array.from({ length: 20 }, (_, index) => historical(index));
+  navigate(w, "progress");
+  await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
+  assert.match(app.querySelector(".workout-history").textContent, /AMRAP: 7 giri: Fatto/);
+  assert.match(app.querySelector(".workout-history").textContent, /Piegamenti/);
+  assert.equal(app.querySelectorAll(".workout-history > details").length, 20);
+  state.history = [historical(20)];
+  click(w, "Carica precedenti");
+  await until(() => !w.workoutLibrary.snapshot().historyLoading);
+  assert.equal(app.querySelectorAll(".workout-history > details").length, 21);
+  const call = state.calls.filter((entry) => entry.name === "workout_history").at(-1);
+  assert.equal(call.args.p_before_id, "19");
+  const detached = app.querySelector(".workout-history");
+  navigate(w, "plan");
+  const oldText = detached.textContent;
+  state.history = [historical(21)];
+  await w.workoutLibrary.loadHistory();
+  assert.equal(detached.textContent, oldText);
+  assert.equal(app.querySelector(".workout-history"), null);
+  assert.doesNotMatch(app.textContent, /Piano originale/);
+});
+
+test("switching accounts clears Progress history and metrics without exposing the previous owner", async (t) => {
+  const { w, state, app } = await mount(t, {
+    plans: new Map([[alice, record(alice, "Alice")], [bob, record(bob, "Bob")]]),
+  });
+  state.history = [{
+    id: "private", completed_at: "2026-10-24T12:00:00Z", revision: 1, plan_title: "Privato Alice",
+    warmup: definition.warmup, session: definition.sessions[0], steps: {}, amrap_rounds: null,
+  }];
+  navigate(w, "progress");
+  await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
+  assert.match(app.textContent, /Privato Alice/);
+  state.history = [];
+  state.rows = [];
+  state.id = bob;
+  state.callback("SIGNED_IN", { user: { id: bob } });
+  assert.doesNotMatch(app.textContent, /Privato Alice/);
+  await until(() => w.workoutSocial.snapshot().accessReady && !w.workoutSocial.snapshot().busy
+    && !w.workoutLibrary.snapshot().historyLoading);
+  assert.equal(w.getActiveView(), "progress");
+  assert.doesNotMatch(app.textContent, /Privato Alice/);
+  assert.match(app.textContent, /Nessun allenamento sincronizzato/);
 });
