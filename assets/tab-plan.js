@@ -74,6 +74,9 @@ function renderPlanSession(session, index, total) {
     list.appendChild(
       createReadonlyItem(exercise.name, setLabel, exercise.instructions, exercise.rest)
     );
+    if (session.type === "standard") {
+      list.lastElementChild.appendChild(textEl("p", formatExerciseTracking(exercise), "view-description"));
+    }
   }
   card.appendChild(list);
   return card;

@@ -59,6 +59,12 @@ function validateWorkoutPlan(plan) {
       text(exercise.target, `${exercisePath}, obiettivo`);
       if (exercise.instructions !== undefined) text(exercise.instructions, `${exercisePath}, istruzioni`, true);
       if (exercise.rest !== undefined) text(exercise.rest, `${exercisePath}, recupero`, true);
+      if (exercise.measurementMode !== undefined && !["reps", "seconds"].includes(exercise.measurementMode)) {
+        errors.push(`${exercisePath}: tracciamento in ripetizioni o secondi.`);
+      }
+      if (exercise.usesWeight !== undefined && typeof exercise.usesWeight !== "boolean") {
+        errors.push(`${exercisePath}: uso del peso deve essere vero o falso.`);
+      }
       if (session.type === "standard") {
         if (typeof exercise.rest === "string" && exercise.rest.trim()) {
           const rest = exercise.rest.trim().match(/^(\d{1,4})(?:-(\d{1,4}))?(?: (?:s|sec|secondi))?$/);

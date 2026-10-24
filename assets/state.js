@@ -201,9 +201,22 @@ function updateSetResult(sessionId, key, values) {
   writeProgressStore(store);
 }
 
-function parseSetResult(input = {}) {
+function getExerciseTracking(exercise) {
+  return {
+    mode: exercise.measurementMode ?? "reps",
+    usesWeight: exercise.usesWeight ?? false,
+  };
+}
+
+function formatExerciseTracking(exercise) {
+  const { mode, usesWeight } = getExerciseTracking(exercise);
+  return `Tracciamento: ${mode === "seconds" ? "durata in secondi" : "ripetizioni"}${usesWeight ? " e peso (kg)" : ""}`;
+}
+
+function parseSetResult(input = {}, exercise = null) {
   const result = {};
-  for (const key of ["weightKg", input.mode === "seconds" ? "seconds" : "reps"]) {
+  const { mode, usesWeight } = exercise ? getExerciseTracking(exercise) : { mode: input.mode, usesWeight: true };
+  for (const key of [...(usesWeight ? ["weightKg"] : []), mode === "seconds" ? "seconds" : "reps"]) {
     const raw = input[key];
     if (raw === undefined || raw === null || raw === "") continue;
     const value = Number(raw);

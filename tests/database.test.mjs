@@ -28,6 +28,7 @@ await db.exec(await readFile(new URL("../supabase/migrations/202610240001_rankin
 await db.exec(await readFile(new URL("../supabase/migrations/202610240002_consistency_ranking.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240003_performance_tracking.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240004_manual_workouts.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240005_exercise_tracking.sql", import.meta.url), "utf8"));
 after(() => db.close());
 
 beforeEach(async () => {
@@ -117,6 +118,10 @@ test("frontend and database validation agree on malformed imported plans and acc
     (p) => { p.sessions[0].exercises = []; },
     (p) => { p.sessions[0].exercises[0].sets = 31; },
     (p) => { p.sessions[0].exercises[0].optionalSets = -1; },
+    (p) => { p.sessions[0].exercises[0].measurementMode = "minutes"; },
+    (p) => { p.sessions[0].exercises[0].measurementMode = null; },
+    (p) => { p.sessions[0].exercises[0].usesWeight = "true"; },
+    (p) => { p.sessions[0].exercises[0].usesWeight = null; },
     (p) => { p.sessions[0].exercises[0].rest = "1 minuto"; },
     (p) => { p.sessions[0].exercises[0].rest = "90-60 secondi"; },
     (p) => { p.sessions[0].id = "warm"; },
@@ -130,6 +135,39 @@ test("frontend and database validation agree on malformed imported plans and acc
     mutation(invalid);
     assert.ok(validateWorkoutPlan(invalid).length > 0);
     await assert.rejects(savePrivatePlan(invalid), /Invalid workout plan/);
+  }
+});
+
+test("tracking settings accept both modes and weight options without invalidating legacy plans", async () => {
+  let saved = await savePrivatePlan();
+  for (const measurementMode of ["reps", "seconds"]) {
+    for (const usesWeight of [true, false]) {
+      const plan = structuredClone(privatePlan);
+      Object.assign(plan.sessions[0].exercises[0], { measurementMode, usesWeight });
+      assert.deepEqual(validateWorkoutPlan(plan), []);
+      saved = await savePrivatePlan(plan, saved.id);
+      assert.equal(saved.definition.sessions[0].exercises[0].measurementMode, measurementMode);
+      assert.equal(saved.definition.sessions[0].exercises[0].usesWeight, usesWeight);
+    }
+  }
+  assert.deepEqual(validateWorkoutPlan(privatePlan), []);
+  saved = await savePrivatePlan(privatePlan, saved.id);
+  assert.deepEqual(saved.definition, privatePlan);
+});
+
+test("the repository example explicitly configures every standard exercise", async () => {
+  const plan = JSON.parse(await readFile(new URL("../data/workout-plan.json", import.meta.url), "utf8"));
+  const timed = new Set([
+    "a-wall-handstand-hold", "a-pull-up-hold", "b-false-grip-hold", "c-planche-lean",
+    "d-hs-angoli", "e-bar-dip", "core-barchetta", "core-pallina-bastone",
+    "core-raises-barchetta", "core-crunch-farfalla", "core-cardio",
+  ]);
+  const weighted = new Set(["c-wrist-curl", "d-squat-bulgarian", "e-warmup", "e-stacco-affondi"]);
+  const exercises = plan.sessions.filter((day) => day.type === "standard").flatMap((day) => day.exercises);
+  assert.equal(exercises.length, 27);
+  for (const exercise of exercises) {
+    assert.equal(exercise.measurementMode, timed.has(exercise.id) ? "seconds" : "reps", exercise.id);
+    assert.equal(exercise.usesWeight, weighted.has(exercise.id), exercise.id);
   }
 });
 
@@ -437,6 +475,11 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
   const container = w.document.querySelector("main");
   const cleanupWorkout = w.renderWorkout(container, plan, () => {});
   for (const label of ["Riscaldamento completato", "Serie completata", "Salta"]) {
+    if (label === "Serie completata") {
+      const input = container.querySelector('[data-actual-field="reps"]');
+      input.value = "5";
+      input.dispatchEvent(new w.Event("input", { bubbles: true }));
+    }
     [...container.querySelectorAll("button")].find((button) => button.textContent === label).click();
   }
   assert.equal(w.pendingAttendance(alice).length, 1);
@@ -530,6 +573,9 @@ test("full app edits a private plan and atomically syncs offline detailed result
     button.click();
   };
   click("Modifica piano");
+  const weight = [...w.document.querySelectorAll("label")].find((label) => label.firstChild.textContent === "Prevede un peso").querySelector("input");
+  weight.checked = true;
+  weight.dispatchEvent(new w.Event("change"));
   const title = [...w.document.querySelectorAll("label")].find((label) => label.firstChild.textContent === "Titolo della scheda").querySelector("input");
   title.value = "Versione personale aggiornata";
   title.dispatchEvent(new w.Event("input", { bubbles: true }));
@@ -547,6 +593,7 @@ test("full app edits a private plan and atomically syncs offline detailed result
     input.dispatchEvent(new w.Event("input",{bubbles:true}));
   }
   click("Serie completata");
+  click("Salta recupero");
   click("Salta");
   assert.equal(w.pendingAttendance(alice).length, 1);
   assert.equal(w.pendingAttendance(alice)[0].workout.planVersionId, w.workoutLibrary.snapshot().record.id);
