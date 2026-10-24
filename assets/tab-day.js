@@ -1,7 +1,6 @@
-function renderDay(container, plan) {
+function renderDay(container, plan, sessionId = getCurrentSessionId(plan)) {
   container.replaceChildren();
 
-  const sessionId = getCurrentSessionId(plan);
   const sessionIndex = plan.sessions.findIndex((item) => item.id === sessionId);
   const session = plan.sessions[sessionIndex];
   if (!session) {
@@ -22,7 +21,7 @@ function renderDay(container, plan) {
     "p",
     summary.complete
       ? "Allenamento completato. Apri la tab Allenamento per passare alla prossima giornata."
-      : "Il progresso si aggiorna automaticamente dalla tab Allenamento.",
+      : "Il progresso si aggiorna dalla tab Allenamento. Qui puoi consultare la giornata senza modificarlo.",
     `day-hint${summary.complete ? " complete" : ""}`
   );
   container.appendChild(hint);

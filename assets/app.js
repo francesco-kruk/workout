@@ -17,7 +17,7 @@ function boot() {
     const social = window.workoutSocial.snapshot();
     if (status) {
       status.textContent = screen.startsWith("app:") ? library.error || social.error || library.notice || social.notice || (social.user
-        ? library.loading ? "Caricamento scheda personale..." : library.record ? `Scheda personale · versione ${library.record.revision}` : "Nessuna scheda personale caricata."
+        ? library.loading ? "Caricamento piano personale..." : library.record ? "" : "Crea il tuo primo piano."
         : "Modalità esempio · progressi salvati solo su questo browser.") : "";
     }
     if (logout) {
@@ -36,8 +36,10 @@ function boot() {
       return social.error && !social.busy ? "access-error" : "loading";
     }
     if (!social.member) return "pending";
-    if (!library.record && library.loading) return "loading";
-    if (!library.record && library.error) return "plan-error";
+    if (!library.record && screen !== `app:${social.user.id}`) {
+      if (library.loading) return "loading";
+      if (library.error) return "plan-error";
+    }
     return `app:${social.user.id}`;
   }
 
@@ -54,8 +56,8 @@ function boot() {
     }
     if (activeView === "plan") {
       cleanupView = renderPersonalPlan(app);
-    } else if (activeView === "leaderboard") {
-      cleanupView = renderLeaderboard(app);
+    } else if (activeView === "progress") {
+      cleanupView = renderProgress(app);
     } else if (!library.plan) {
       app.replaceChildren(
         textEl("h2", "La tua scheda"),
@@ -66,8 +68,6 @@ function boot() {
       app.appendChild(openPlan);
     } else if (activeView === "workout") {
       cleanupView = renderWorkout(app, library.plan, renderView);
-    } else {
-      renderDay(app, library.plan);
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }

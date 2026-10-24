@@ -2,14 +2,15 @@ function renderPersonalPlan(container) {
   const library = window.workoutLibrary;
   const ownerId = library.snapshot().userId;
   let active = true;
-  let mode = "overview";
+  let mode = "today";
+  let inspectedDay = null;
+  const expandedSections = new Map();
   let draft = null;
   let message = "";
   let saving = false;
   let status;
   try {
     draft = ownerId ? library.getDraft() : null;
-    if (draft) mode = "editor";
   } catch (error) {
     console.error("Bozza non leggibile.", error);
     message = error.message;
@@ -22,14 +23,21 @@ function renderPersonalPlan(container) {
   function showError(error) {
     console.error("Gestione scheda non riuscita.", error);
     message = error.message || String(error);
-    if (status) status.textContent = message;
+    if (status) {
+      status.textContent = message;
+      status.classList.add("error");
+      status.focus();
+    }
   }
 
   function persist() {
     assertOwner();
     draft = library.writeDraft(draft.definition, draft.baseVersionId);
-    message = "Bozza salvata su questo dispositivo. Pubblica online per usarla.";
-    if (status) status.textContent = message;
+    message = "Modifiche conservate sul telefono. Salva il piano per usarle.";
+    if (status) {
+      status.textContent = message;
+      status.classList.remove("error");
+    }
   }
 
   function begin(definition) {
@@ -66,19 +74,16 @@ function renderPersonalPlan(container) {
     container.replaceChildren();
     const toolbar = document.createElement("section");
     toolbar.className = "social-panel";
-    toolbar.append(textEl("h2", state.userId ? "La mia scheda" : "Scheda di esempio"));
+    toolbar.append(textEl("h2", state.plan?.title || "Il tuo piano"));
     status = textEl("p", message || state.error || state.notice || (state.loading ? "Caricamento scheda..." : ""), "social-status");
     status.setAttribute("role", "status");
+    status.tabIndex = -1;
     toolbar.appendChild(status);
     container.appendChild(toolbar);
 
     if (!state.userId) {
-      toolbar.appendChild(textEl("p", "Questa è una scheda di esempio in modalità locale, con progressi solo su questo browser. Configura l'accesso per usare una scheda privata.", "view-description"));
-      if (state.plan) {
-        const overview = document.createElement("div");
-        renderPlan(overview, state.plan);
-        container.appendChild(overview);
-      }
+      toolbar.appendChild(textEl("p", "Piano di esempio, in sola lettura. Per creare o modificare un piano personale devi accedere con un account approvato. In modalità locale puoi solo consultare l'esempio e allenarti; i progressi restano su questo browser.", "view-description"));
+      if (state.plan) renderBrowsing(toolbar, state.plan);
       return;
     }
     if (!member) {
@@ -91,30 +96,34 @@ function renderPersonalPlan(container) {
     }
     const actions = document.createElement("div");
     actions.className = "editor-actions";
-    actions.append(
-      button("Scheda", () => { mode = "overview"; render(); }),
-      button("Modifica / crea", () => {
+    if (mode === "editor") {
+      actions.appendChild(button("Torna al piano", () => { mode = "today"; render(); }));
+    } else if (state.plan || draft) {
+      actions.appendChild(button(draft ? "Riprendi modifica" : "Modifica piano", () => {
         if (!draft) begin(structuredClone(state.plan || newWorkoutPlan()));
         else { mode = "editor"; render(); }
-      }),
-      button("Storico", () => { mode = "history"; render(); void library.loadHistory(); }),
-      button("Aggiorna dal server", () => { void library.load(); })
-    );
+      }, "btn btn-primary"));
+      if (state.plan) {
+        const create = button("Nuovo piano", () => begin(newWorkoutPlan()));
+        create.disabled = Boolean(draft);
+        actions.appendChild(create);
+        if (draft) {
+          toolbar.appendChild(textEl("p", "Hai modifiche non salvate. Riprendile o scarta la bozza in Altre opzioni prima di creare un nuovo piano.", "view-description"));
+        }
+      }
+    }
     toolbar.appendChild(actions);
+    if (state.error) toolbar.appendChild(button("Riprova caricamento", () => { void library.load(); }));
     if (state.availableRecord) {
-      toolbar.appendChild(button("Usa versione aggiornata (progressi separati)", () => {
+      toolbar.appendChild(textEl("p", "È disponibile un piano aggiornato. Puoi continuare l'allenamento attuale; usando quello nuovo inizierai progressi separati.", "view-description"));
+      toolbar.appendChild(button("Usa piano aggiornato", () => {
         try { library.useLatest(); } catch (error) { showError(error); }
       }, "btn btn-primary"));
     }
     if (mode === "editor") {
       renderEditor();
-    } else if (mode === "history") {
-      renderHistory();
     } else if (state.plan) {
-      toolbar.appendChild(textEl("p", `Versione ${state.record.revision}. I progressi attivi restano su questo dispositivo; ogni modifica pubblicata crea una nuova versione.`, "view-description"));
-      const overview = document.createElement("div");
-      renderPlan(overview, state.plan);
-      container.appendChild(overview);
+      renderBrowsing(toolbar, state.plan);
     } else {
       toolbar.appendChild(textEl("p", "Non hai ancora una scheda personale. Creala da zero, importa un file JSON o personalizza l'esempio.", "view-description"));
       toolbar.append(
@@ -125,8 +134,59 @@ function renderPersonalPlan(container) {
           else showError(new Error("Scheda di esempio non disponibile."));
         })
       );
-      renderImport(toolbar);
+      const options = document.createElement("details");
+      options.appendChild(textEl("summary", "Importa un piano JSON"));
+      renderImport(options);
+      toolbar.appendChild(options);
     }
+  }
+
+  function renderBrowsing(toolbar, plan) {
+    const controls = document.createElement("div");
+    controls.className = "plan-switch";
+    controls.setAttribute("role", "group");
+    controls.setAttribute("aria-label", "Vista del piano");
+    for (const [value, label] of [["today", "Oggi"], ["full", "Piano completo"]]) {
+      const selected = mode === value;
+      const control = button(label, () => { mode = value; inspectedDay = null; render(); }, selected ? "btn btn-primary" : "btn btn-secondary");
+      control.setAttribute("aria-pressed", String(selected));
+      controls.appendChild(control);
+    }
+    toolbar.appendChild(controls);
+    const content = document.createElement("div");
+    content.className = "plan-content";
+    if (mode === "full") {
+      renderPlan(content, plan, (id) => { inspectedDay = id; mode = "today"; render(); });
+    } else {
+      const selectedId = inspectedDay || getCurrentSessionId(plan);
+      const label = textEl("label", "Consulta una giornata");
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", "Consulta una giornata");
+      for (const day of plan.sessions) {
+        const option = textEl("option", day.label);
+        option.value = day.id;
+        option.selected = day.id === selectedId;
+        select.appendChild(option);
+      }
+      select.addEventListener("change", () => { inspectedDay = select.value; render(); });
+      label.appendChild(select);
+      toolbar.appendChild(label);
+      if (selectedId !== getCurrentSessionId(plan)) {
+        toolbar.appendChild(textEl("p", "Stai consultando un'altra giornata. L'allenamento attivo non cambia.", "view-description"));
+        toolbar.appendChild(button("Torna a oggi", () => { inspectedDay = null; render(); }));
+      }
+      renderDay(content, plan, selectedId);
+    }
+    container.appendChild(content);
+  }
+
+  function editorSection(label, id, initiallyOpen = false) {
+    const section = document.createElement("details");
+    section.className = "editor-section";
+    section.open = expandedSections.get(id) ?? initiallyOpen;
+    section.appendChild(textEl("summary", label));
+    section.addEventListener("toggle", () => expandedSections.set(id, section.open));
+    return section;
   }
 
   function field(parent, label, model, key, { type = "text", min, max, required = false } = {}) {
@@ -169,6 +229,7 @@ function renderPersonalPlan(container) {
 
   function addTo(items, value) {
     items.push(value);
+    expandedSections.set(value.id, true);
     try { persist(); render(); } catch (error) { showError(error); }
   }
 
@@ -198,8 +259,16 @@ function renderPersonalPlan(container) {
     const definition = draft.definition;
     const form = document.createElement("form");
     form.className = "plan-editor social-panel";
-    form.appendChild(textEl("p", "Le bozze restano locali. Pubblicare avvia progressi separati per la nuova versione; i risultati storici non cambiano.", "view-description"));
+    form.appendChild(textEl("p", "Le modifiche restano sul telefono finché non salvi il piano. Il piano attuale resta disponibile fino al salvataggio. Salvare un piano nuovo o modificato avvia progressi separati; gli allenamenti precedenti restano in Progressi.", "view-description"));
+    form.addEventListener("invalid", (event) => {
+      let section = event.target.parentElement;
+      while (section && section !== form) {
+        if (section.tagName === "DETAILS") section.open = true;
+        section = section.parentElement;
+      }
+    }, true);
     field(form, "Titolo della scheda", definition, "title", { required: true });
+    const options = editorSection("Altre opzioni", "options");
     const transfers = document.createElement("div");
     transfers.className = "editor-actions";
     transfers.append(
@@ -209,16 +278,17 @@ function renderPersonalPlan(container) {
           assertOwner();
           library.discardDraft();
           draft = null;
-          mode = "overview";
+          mode = "today";
           message = "";
           render();
           await library.load();
         } catch (error) { showError(error); }
       })
     );
-    renderImport(form);
-    form.appendChild(transfers);
-    form.appendChild(textEl("h3", "Riscaldamento comune"));
+    renderImport(options);
+    options.appendChild(transfers);
+    form.appendChild(options);
+    const warmup = editorSection("Riscaldamento comune", "warmup");
     definition.warmup.forEach((item, index) => {
       const group = document.createElement("fieldset");
       group.appendChild(textEl("legend", `Riscaldamento ${index + 1}`));
@@ -226,15 +296,15 @@ function renderPersonalPlan(container) {
       field(group, "Obiettivo", item, "target", { required: true });
       field(group, "Istruzioni", item, "instructions", { type: "textarea" });
       collectionControls(group, definition.warmup, index);
-      form.appendChild(group);
+      warmup.appendChild(group);
     });
     const addWarmup = button("Aggiungi riscaldamento", () => addTo(definition.warmup, newWorkoutItem()));
     addWarmup.disabled = definition.warmup.length >= 50;
-    form.appendChild(addWarmup);
+    warmup.appendChild(addWarmup);
+    form.appendChild(warmup);
     definition.sessions.forEach((day, dayIndex) => {
-      const group = document.createElement("fieldset");
-      group.className = "editor-day";
-      group.appendChild(textEl("legend", `Giornata ${dayIndex + 1}`));
+      const group = editorSection(`Giornata ${dayIndex + 1} · ${day.label || "Nuova giornata"}`, day.id);
+      group.classList.add("editor-day");
       field(group, "Nome giornata", day, "label", { required: true });
       field(group, "Sottotitolo", day, "subtitle");
       const typeLabel = textEl("label", "Tipo di allenamento");
@@ -256,8 +326,7 @@ function renderPersonalPlan(container) {
       if (day.type === "amrap") field(group, "Durata (es. 20 minuti)", day, "duration", { required: true });
       field(group, "Istruzioni della giornata", day, "instructions", { type: "textarea" });
       day.exercises.forEach((exercise, exerciseIndex) => {
-        const exerciseGroup = document.createElement("fieldset");
-        exerciseGroup.appendChild(textEl("legend", `Esercizio ${exerciseIndex + 1}`));
+        const exerciseGroup = editorSection(`Esercizio ${exerciseIndex + 1} · ${exercise.name || "Nuovo esercizio"}`, exercise.id);
         field(exerciseGroup, "Nome esercizio", exercise, "name", { required: true });
         field(exerciseGroup, "Obiettivo / ripetizioni", exercise, "target", { required: true });
         if (day.type === "standard") {
@@ -277,13 +346,19 @@ function renderPersonalPlan(container) {
     });
     const addDay = button("Aggiungi giornata", () => addTo(definition.sessions, newWorkoutDay()));
     addDay.disabled = definition.sessions.length >= 30;
-    const submit = createButton(saving ? "Pubblicazione..." : "Pubblica scheda", "btn btn-primary");
+    const submit = createButton(saving ? "Salvataggio..." : "Salva piano", "btn btn-primary");
     submit.type = "submit";
     submit.disabled = saving;
     form.append(addDay, submit);
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (saving) return;
+      const errors = validateWorkoutPlan(draft.definition);
+      if (errors.length) {
+        for (const section of form.querySelectorAll("details")) section.open = true;
+        showError(new Error(errors.join("\n")));
+        return;
+      }
       saving = true;
       for (const input of form.querySelectorAll("button, input, select, textarea")) input.disabled = true;
       try {
@@ -292,8 +367,8 @@ function renderPersonalPlan(container) {
         if (!active) return;
         saving = false;
         draft = null;
-        mode = "overview";
-        message = "Scheda pubblicata.";
+        mode = "today";
+        message = "Piano salvato.";
         render();
       } catch (error) {
         if (active) {
@@ -306,57 +381,15 @@ function renderPersonalPlan(container) {
     container.appendChild(form);
   }
 
-  function renderHistory() {
-    const state = library.snapshot();
-    const section = document.createElement("section");
-    section.className = "social-panel";
-    section.append(
-      textEl("h3", "Storico privato"),
-      textEl("p", "Solo tu puoi leggere questi dettagli. Registriamo gli step completati o saltati e i giri AMRAP, non pesi o ripetizioni effettive non inseriti nell'app.", "view-description")
-    );
-    let pending = [];
-    try {
-      pending = state.userId ? pendingAttendance(state.userId).filter((receipt) => receipt.workout) : [];
-    } catch (error) { showError(error); }
-    if (pending.length) section.appendChild(textEl("p", `${pending.length} allenamenti locali in attesa di invio.`, "view-description"));
-    if (state.historyLoading) section.appendChild(textEl("p", "Caricamento storico..."));
-    if (!state.history.length && !state.historyLoading) section.appendChild(textEl("p", "Nessun allenamento sincronizzato."));
-    for (const result of state.history) {
-      const details = document.createElement("details");
-      const date = new Date(result.completed_at).toLocaleString("it-IT", { timeZone: "Europe/Rome" });
-      details.appendChild(textEl("summary", `${date} · ${result.session.label} · ${result.plan_title} (v${result.revision})`));
-      const list = document.createElement("ul");
-      const historicalPlan = { warmup: result.warmup, sessions: [result.session] };
-      for (const step of getWorkoutSteps(historicalPlan, result.session)) {
-        const label = step.type === "warmup" ? step.item.name
-          : step.type === "amrap" ? `AMRAP: ${result.amrap_rounds} giri`
-            : `${step.exercise.name}, serie ${step.setNumber} · ${step.exercise.target}`;
-        list.appendChild(textEl("li", `${label}: ${result.steps[step.key] === "completed" ? "Fatto" : "Saltato"}`));
-      }
-      details.appendChild(list);
-      section.appendChild(details);
-    }
-    if (state.moreHistory) {
-      const more = button("Carica precedenti", () => { void library.loadHistory(true); });
-      more.disabled = state.historyLoading;
-      section.appendChild(more);
-    }
-    section.appendChild(button("Aggiorna storico", () => { void library.loadHistory(); }));
-    container.appendChild(section);
-  }
-
   function onStatus() {
-    if (mode === "overview" || (mode === "editor" && !container.querySelector(".plan-editor"))) render();
+    if (mode !== "editor" || !container.querySelector(".plan-editor")) render();
     else if (status) status.textContent = message || library.snapshot().error;
   }
-  function onHistory() { if (mode === "history") render(); }
   window.addEventListener("workout-library-status", onStatus);
-  window.addEventListener("workout-history-change", onHistory);
   render();
   return () => {
     active = false;
     window.removeEventListener("workout-library-status", onStatus);
-    window.removeEventListener("workout-history-change", onHistory);
   };
 }
 

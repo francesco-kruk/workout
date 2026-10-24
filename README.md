@@ -3,10 +3,26 @@
 Italian, mobile-friendly workout tracking, hosted as a static site on GitHub Pages.
 Workout progress and timers are saved in the browser. Supabase optionally stores
 each member's private workout plan and completed-workout history, and connects one
-friends group through **Classifica**. Everyone uses the same website; no forks or
+friends group through **Progressi**. Everyone uses the same website; no forks or
 application servers are required.
 
 ## Run locally
+
+For a production-like **signed-in UI preview**, run:
+
+```sh
+npm run preview
+```
+
+Open `http://127.0.0.1:8765/`. This uses the real app UI with an approved demo
+account and a private-plan example. Create/edit/save plans, resume drafts, and
+try training/history without signing in to Supabase. Data persists only in this
+browser on this local origin. Ranking numbers are illustrative and do not
+recalculate when training. No production data or credentials are used; the
+preview adapter is injected only by this localhost server, not by GitHub Pages.
+The banner identifies preview mode. Use `PORT=8766 npm run preview` for another port.
+
+To use the real authentication/backend instead, serve this directory normally:
 
 Serve this directory with a static HTTP server, for example:
 
@@ -87,8 +103,8 @@ is not supported: there is no service worker.
    email address and password, or choose **Crea un account** on the first visit.
    Both actions stay in the current window; no email or external browser is needed.
    The app waits for identity, membership, and the private plan before opening
-   the four tabs. New members without a plan land directly on **Piano** to
-   create/import and publish one. **Classifica** shows standings and display-name
+   the three tabs: **Piano**, **Allenamento**, and **Progressi**. New members without a plan land directly on **Piano** to
+   create/import and save one. **Progressi** shows standings and display-name
    settings, not the login form. An authenticated but unapproved account sees
    only an access-pending screen with retry and sign-out controls.
 
@@ -123,12 +139,30 @@ Removing membership also cascades their private plans and completed history.
 
 ## Personal workout plans and history
 
-**Piano** provides a guided editor for the plan title, shared warmup, ordered
+**Piano** opens on **Oggi**, the active training day, with a switch to **Piano
+completo** for a compact, expandable overview. This is a training cycle, not a
+calendar schedule. Inspecting another day does not change the active training
+day or its progress. **Allenamento** remains the step-by-step training screen.
+**Progressi** combines current-device workout completion, synchronized monthly
+training days/points, streak/multiplier, private history, and the friends ranking.
+Local pending results are labeled separately from synchronized scores and history.
+
+**Modifica piano** opens the editor for the plan title, shared warmup, ordered
 training days, standard exercises with required/optional sets and rest, and
-AMRAP circuits with duration and exercise targets. Add, remove, and reorder
+AMRAP circuits with duration and exercise targets. Days and exercises expand
+only when needed. Add, remove, and reorder
 items through the UI. A member can create from scratch, personalize the bundled
 example, or import a version-2 JSON file; **Esporta JSON** downloads the current
-draft. No repository editing is necessary.
+draft. JSON import/export and draft discard are secondary options. Drafts stay
+on the device: **Riprendi modifica** reopens one explicitly, and **Torna al piano**
+leaves it intact. **Salva piano** saves the plan online. No repository editing is
+necessary. PDF import and AI extraction are not yet supported.
+
+With an existing plan, **Nuovo piano** starts a blank replacement; the current
+plan remains active until the replacement is saved. An existing draft must be
+resumed or explicitly discarded first, so starting a new plan cannot erase it.
+The local example is read-only: creating and editing personal plans requires
+an approved signed-in account.
 
 There is one current plan per user, with immutable prior versions:
 
@@ -139,7 +173,9 @@ There is one current plan per user, with immutable prior versions:
   Publishing starts separate progress; old progress is retained rather than
   applied to exercises that may have changed. If another device publishes while
   a local workout is underway, the current version stays active until the member
-  explicitly selects **Usa versione aggiornata**.
+  explicitly selects **Usa piano aggiornato**. Routine browsing assumes one
+  editing device and does not expose a manual server-refresh button or version
+  controls. Automatic loading and explicit error recovery remain available.
 - **Conflicts:** the server rejects saving against a superseded base version.
   Export your draft before discarding/reloading and reapplying edits to the
   latest version. Concurrent saves do not silently overwrite one another.
@@ -148,7 +184,7 @@ There is one current plan per user, with immutable prior versions:
   training-day ID, completion time, each step's completed/skipped status, and
   AMRAP rounds. Several workouts on the same date appear separately in history
   but earn daily leaderboard credit only once.
-- **History:** **Piano > Storico** displays private completed workouts, with
+- **History:** **Progressi > Storico privato** displays private completed workouts, with
   original exercise targets/definitions, step results, and AMRAP rounds.
   **Carica precedenti** loads older results in pages of 20. We do not invent
   actual weights/repetitions: the current training UI records step completion

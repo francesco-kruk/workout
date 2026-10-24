@@ -1,5 +1,5 @@
 window.workoutLibrary = (() => {
-  const state = { userId: null, record: null, availableRecord: null, loading: false, error: "", notice: "", history: [], historyLoading: false, moreHistory: false };
+  const state = { userId: null, record: null, availableRecord: null, loading: false, error: "", notice: "", history: [], historyLoading: false, historyError: "", moreHistory: false };
   let template = null;
   let revision = 0;
   let loadRequest = 0;
@@ -46,6 +46,7 @@ window.workoutLibrary = (() => {
     state.notice = "";
     state.history = [];
     state.historyLoading = false;
+    state.historyError = "";
     state.moreHistory = false;
     setWorkoutScope(userId, null);
     emit("workout-library-change");
@@ -96,7 +97,7 @@ window.workoutLibrary = (() => {
           return summary.handled > 0 && !summary.complete;
         })) {
         state.availableRecord = record;
-        state.notice = "Nuova versione sul server. La scheda attiva è mantenuta per non interrompere l'allenamento. Puoi attivare la nuova versione dalla tab Piano.";
+        state.notice = "È disponibile un piano aggiornato. Puoi continuare l'allenamento attuale o scegliere il nuovo piano nella tab Piano.";
         return;
       }
       activate(record);
@@ -168,7 +169,7 @@ window.workoutLibrary = (() => {
     const currentRevision = revision;
     const request = ++historyRequest;
     state.historyLoading = true;
-    state.error = "";
+    state.historyError = "";
     emit("workout-history-change");
     try {
       const last = append ? state.history.at(-1) : null;
@@ -179,7 +180,10 @@ window.workoutLibrary = (() => {
         : rows;
       state.moreHistory = rows.length === 20;
     } catch (error) {
-      if (revision === currentRevision) report(error, "Storico non disponibile.");
+      if (revision === currentRevision && request === historyRequest) {
+        console.error("Storico non disponibile.", error);
+        state.historyError = `Storico non disponibile. ${error.message || String(error)}`;
+      }
     } finally {
       if (revision === currentRevision && request === historyRequest) {
         state.historyLoading = false;

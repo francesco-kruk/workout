@@ -2,6 +2,7 @@
   "name": "workout",
   "private": true,
   "scripts": {
+    "preview": "node scripts/preview.mjs",
     "test": "node --test",
     "validate": "node scripts/validate-plan.mjs"
   },
