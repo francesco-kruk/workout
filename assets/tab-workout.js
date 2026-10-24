@@ -3,6 +3,19 @@ function renderWorkout(container, plan, onSessionAdvanced) {
   let timerCleanup = null;
   let active = true;
   let manualNotice = "";
+  function updateAudioStatus() {
+    const status = container.querySelector("[data-audio-status]");
+    if (status) {
+      status.textContent = window.workoutAudio.error();
+      status.hidden = !status.textContent;
+    }
+  }
+  function prepareAudio() {
+    const rest = getProgress(getCurrentSessionId(plan)).restTimer;
+    if (rest && rest.deadline !== null) void window.workoutAudio.prepare();
+  }
+  container.addEventListener("click", prepareAudio);
+  window.addEventListener("workout-audio-change", updateAudioStatus);
   function updateSocialStatus() {
     const status = container.querySelector("[data-social-status]");
     if (status) {
@@ -20,11 +33,21 @@ function renderWorkout(container, plan, onSessionAdvanced) {
   window.addEventListener("workout-manual-will-complete", stopTimer);
   function resumeRestView() {
     if (!active || document.hidden) return;
-    const rest = getProgress(getCurrentSessionId(plan)).restTimer;
+    const sessionId = getCurrentSessionId(plan);
+    const rest = getProgress(sessionId).restTimer;
     if (rest && ((rest.deadline !== null && rest.deadline <= Date.now())
-      || rest.remainingMilliseconds === 0)) renderCurrent();
+      || rest.remainingMilliseconds === 0)) {
+      finishRest(sessionId, Boolean(container.querySelector(".rest-timer")));
+    }
   }
   document.addEventListener("visibilitychange", resumeRestView);
+
+  function finishRest(sessionId, notify) {
+    if (!active || !getProgress(sessionId).restTimer) return;
+    clearRestTimer(sessionId);
+    if (notify) window.workoutAudio.play();
+    renderCurrent();
+  }
 
   function stopTimer() {
     if (timerId !== null) {
@@ -62,6 +85,11 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         `Allenamento · giornata ${sessionIndex + 1} di ${plan.sessions.length}`
       )
     );
+    const audioStatus = textEl("p", "", "social-status error");
+    audioStatus.dataset.audioStatus = "";
+    audioStatus.setAttribute("role", "status");
+    container.appendChild(audioStatus);
+    updateAudioStatus();
     container.appendChild(renderJumpControls(session, summary));
     container.appendChild(createProgress(summary, "step completati"));
     if (!summary.complete && !hasRecordedWorkout(summary.progress.runId)) {
@@ -235,13 +263,14 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     fields.appendChild(hint);
     const error = textEl("p", "", "social-status error");
     error.dataset.measurementError = "";
+    error.id = `measurement-error-${step.exercise.id}`;
     error.setAttribute("role", "alert");
     const inputs = document.createElement("div");
     inputs.className = "measurement-inputs";
     function persist() {
       try {
         updateSetResult(sessionId, step.key, values);
-        error.textContent = "";
+        error.textContent = validateActualNumbers();
       } catch (failure) {
         console.error("Salvataggio risultato locale non riuscito.", failure);
         error.textContent = `Risultato non salvato. ${failure.message}`;
@@ -262,8 +291,11 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       input.inputMode = key === "weightKg" ? "decimal" : "numeric";
       input.value = values[key] ?? "";
       input.dataset.actualField = key;
-      input.setAttribute("aria-describedby", hint.id);
-      input.addEventListener("input", () => { values[key] = input.value; persist(); });
+      input.setAttribute("aria-describedby", `${hint.id} ${error.id}`);
+      input.addEventListener("input", () => {
+        values[key] = input.validity.badInput ? "invalid" : input.value;
+        persist();
+      });
       wrapper.appendChild(input);
       inputs.appendChild(wrapper);
     }
@@ -273,6 +305,12 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       fields.appendChild(textEl("p", "Risultato di questo allenamento già salvato, in sola lettura.", "view-description"));
     }
     card.appendChild(fields);
+    for (const input of inputs.querySelectorAll("input")) {
+      if (input.value) {
+        const message = validateNumberInput(input, input.parentElement.firstChild.textContent);
+        if (message) error.textContent = message;
+      }
+    }
     appendPrevious(card, sessionId, step.exercise.id, step.setNumber);
     return card;
   }
@@ -281,6 +319,12 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     if (!complete) return;
     complete.disabled = Boolean(container.querySelector("[data-measurement-error]")?.textContent)
       || [...container.querySelectorAll("[data-actual-field]")].some((input) => !input.value || !input.checkValidity());
+  }
+
+  function validateActualNumbers() {
+    return [...container.querySelectorAll("[data-actual-field]")].map((input) =>
+      validateNumberInput(input, input.parentElement.firstChild.textContent)
+    ).find(Boolean) || "";
   }
 
   function appendPrevious(card, sessionId, exerciseId = null, setNumber = null) {
@@ -322,6 +366,9 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         if (result[mode] === undefined || (usesWeight && result.weightKg === undefined)) {
           throw new Error("Inserisci tutti i risultati richiesti prima di completare la serie.");
         }
+      } else if (step?.type === "amrap") {
+        parseAmrapCount(summary.progress.amrap.rounds, "Giri completi");
+        parseAmrapCount(summary.progress.amrap.extraReps, "Ripetizioni extra", true);
       }
       if (error?.textContent) throw new Error(error.textContent);
       return true;
@@ -357,8 +404,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
           return;
         }
         if (active.deadline <= Date.now()) {
-          clearRestTimer(sessionId);
-          renderCurrent();
+          finishRest(sessionId, true);
           return;
         }
         refreshTimerUi();
@@ -387,6 +433,10 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     toggle.addEventListener("click", () => {
       const current = getProgress(sessionId).restTimer;
       if (!current) return;
+      if (current.deadline !== null && current.deadline <= Date.now()) {
+        finishRest(sessionId, true);
+        return;
+      }
 
       if (current.deadline !== null) {
         updateRestTimer(sessionId, {
@@ -558,12 +608,13 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     resultError.setAttribute("role", "alert");
     extra.addEventListener("input", () => {
       try {
-        updateAmrap(session.id, { extraReps: extra.value });
-        resultError.textContent = "";
+        updateAmrap(session.id, { extraReps: extra.validity.badInput ? "invalid" : extra.value });
+        resultError.textContent = validateNumberInput(extra, "Ripetizioni extra");
       } catch (failure) {
         console.error("Salvataggio ripetizioni extra non riuscito.", failure);
         resultError.textContent = `Risultato non salvato. ${failure.message}`;
       }
+      updateTimerUi();
     });
     extraLabel.appendChild(extra);
     card.append(extraLabel, textEl("p", "Totale delle ripetizioni svolte dopo l'ultimo giro completo.", "view-description"), resultError);
@@ -589,7 +640,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
             ? "Avvia timer"
             : "Pausa";
       toggle.disabled = remainingMilliseconds === 0;
-      complete.disabled = remainingMilliseconds !== 0;
+      complete.disabled = remainingMilliseconds !== 0 || !extra.checkValidity() || Boolean(resultError.textContent);
       timerStatus.textContent =
         remainingMilliseconds === 0
           ? "Tempo terminato"
@@ -633,6 +684,9 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       });
       roundsLabel.textContent = "0";
       extra.value = "";
+      extra.setCustomValidity("");
+      extra.setAttribute("aria-invalid", "false");
+      resultError.textContent = "";
       decrement.disabled = true;
       increment.disabled = false;
       updateTimerUi();
@@ -663,6 +717,16 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     });
     actions.appendChild(complete);
     card.appendChild(actions);
+    resultError.id = `extra-reps-error-${session.id}`;
+    extra.setAttribute("aria-describedby", resultError.id);
+    if (extra.value) resultError.textContent = validateNumberInput(extra, "Ripetizioni extra");
+    try {
+      parseAmrapCount(rounds, "Giri completi");
+      parseAmrapCount(progress.amrap.extraReps, "Ripetizioni extra", true);
+    } catch (failure) {
+      console.error("Risultato AMRAP non valido.", failure);
+      resultError.textContent = failure.message;
+    }
     updateTimerUi();
     if (hasRecordedWorkout(progress.runId)) {
       extra.disabled = increment.disabled = decrement.disabled = reset.disabled = true;
@@ -728,6 +792,8 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     window.removeEventListener("workout-social-change", updateSocialStatus);
     window.removeEventListener("workout-manual-complete", manualCompleted);
     window.removeEventListener("workout-manual-will-complete", stopTimer);
+    container.removeEventListener("click", prepareAudio);
+    window.removeEventListener("workout-audio-change", updateAudioStatus);
     document.removeEventListener("visibilitychange", resumeRestView);
   };
 }

@@ -75,6 +75,7 @@ is not supported: there is no service worker.
    supabase/migrations/202610240003_performance_tracking.sql
    supabase/migrations/202610240004_manual_workouts.sql
    supabase/migrations/202610240005_exercise_tracking.sql
+   supabase/migrations/202610240006_optional_warmup.sql
    ```
 
    Each migration runs once; apply only migrations not already deployed. Together
@@ -84,7 +85,8 @@ is not supported: there is no service worker.
    tracking, plus peer-reviewed manual workouts. Deploy the manual-workout migration
    before publishing the frontend that uses it. The historical objectives migration is still required in the chain;
    the following migration retires its public workflow. No existing attendance
-   is discarded or invented.
+   is discarded or invented. Deploy the optional-warm-up migration before publishing
+   a frontend that saves plans without warm-up.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
    allowed Redirect URL to `https://francesco-kruk.github.io/workout/`, including
    the project path and trailing slash. These settings are retained for legacy
@@ -146,6 +148,26 @@ retrying instead of opening an example or treating the failure as a missing plan
 An already-loaded, approved account can keep training during an outage.
 
 ### Profile and account settings
+
+**Suono del recupero** plays one short beep when an active rest timer finishes.
+It is enabled by default; check **Disattiva il suono del recupero** in Profilo to
+mute it. This preference stays on the current browser/device, including local
+mode, and is not synchronized to your account. Audio needs a user interaction;
+unsupported or blocked audio is reported without preventing workout tracking.
+Background or locked-screen playback is best-effort: browsers may suspend audio
+or timer callbacks. Skipping rest does not play a sound, and an already-expired
+timer restored on page load does not play an old alert. The AMRAP timer is unchanged.
+
+When creating or editing a plan, **Riscaldamento comune** is optional. New plans
+start without warm-up; add items or remove all of them as needed. Included items
+apply to every day and remain required steps. Existing plans and history keep
+their warm-up. JSON plans still require a `warmup` array, which may now be empty.
+
+Numeric fields show validation feedback and block saving/completion for invalid
+values. Reps, seconds, set counts, and AMRAP counts must be whole numbers within
+their existing limits; weight allows up to two decimal places. Valid zero values
+are accepted where appropriate. Exercise targets remain free text, so ranges
+such as “8–12 ripetizioni” still work.
 
 **Profilo** shows the current display name and effective email. Expand **Nome
 visualizzato**, **Modifica email**, or **Modifica password** to edit one setting

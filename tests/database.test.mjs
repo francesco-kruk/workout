@@ -29,6 +29,7 @@ await db.exec(await readFile(new URL("../supabase/migrations/202610240002_consis
 await db.exec(await readFile(new URL("../supabase/migrations/202610240003_performance_tracking.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240004_manual_workouts.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240005_exercise_tracking.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240006_optional_warmup.sql", import.meta.url), "utf8"));
 after(() => db.close());
 
 beforeEach(async () => {
@@ -113,10 +114,12 @@ test("frontend and database validation agree on malformed imported plans and acc
   for (const mutation of [
     (p) => { p.version = 3; },
     (p) => { p.title = ""; },
-    (p) => { p.warmup = []; },
+    (p) => { p.warmup = null; },
+    (p) => { delete p.warmup; },
     (p) => { p.sessions = {}; },
     (p) => { p.sessions[0].exercises = []; },
     (p) => { p.sessions[0].exercises[0].sets = 31; },
+    (p) => { p.sessions[0].exercises[0].sets = 1.5; },
     (p) => { p.sessions[0].exercises[0].optionalSets = -1; },
     (p) => { p.sessions[0].exercises[0].measurementMode = "minutes"; },
     (p) => { p.sessions[0].exercises[0].measurementMode = null; },
@@ -153,6 +156,26 @@ test("tracking settings accept both modes and weight options without invalidatin
   assert.deepEqual(validateWorkoutPlan(privatePlan), []);
   saved = await savePrivatePlan(privatePlan, saved.id);
   assert.deepEqual(saved.definition, privatePlan);
+});
+
+test("empty warm-up plans save and submit standard and AMRAP results without phantom required steps", async () => {
+  const definition = structuredClone(privatePlan);
+  definition.warmup = [];
+  assert.deepEqual(validateWorkoutPlan(definition), []);
+  const saved = await savePrivatePlan(definition);
+  assert.deepEqual(saved.definition.warmup, []);
+  await submitPrivateResult(saved, {
+    steps: { "squat:0": "completed", "squat:1": "skipped" },
+  });
+  await submitPrivateResult(saved, {
+    sessionId: "circuit", steps: { "circuit:amrap": "completed" }, rounds: 5,
+  });
+  const rows = (await db.query("select session_id, steps from public.completed_workouts order by session_id")).rows;
+  assert.equal(rows.length, 2);
+  for (const row of rows) assert.ok(Object.keys(row.steps).every((key) => !key.startsWith("warmup:")));
+  await assert.rejects(submitPrivateResult(saved, {
+    steps: { "warmup:warm": "completed", "squat:0": "completed", "squat:1": "skipped" },
+  }));
 });
 
 test("the repository example explicitly configures every standard exercise", async () => {
@@ -420,7 +443,7 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
   });
   t.after(() => dom.window.close());
   const w = dom.window;
-  for (const file of ["state", "attendance", "social", "ui", "tab-workout", "tab-leaderboard"]) {
+  for (const file of ["state", "attendance", "social", "ui", "timer-audio", "tab-workout", "tab-leaderboard"]) {
     w.eval(await readFile(new URL(`../assets/${file}.js`, import.meta.url), "utf8"));
   }
   const client = {

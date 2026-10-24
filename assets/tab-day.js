@@ -26,7 +26,7 @@ function renderDay(container, plan, sessionId = getCurrentSessionId(plan)) {
   );
   container.appendChild(hint);
 
-  container.appendChild(renderDayWarmup(plan.warmup, summary.progress));
+  if (plan.warmup.length) container.appendChild(renderDayWarmup(plan.warmup, summary.progress));
   if (session.type === "amrap") {
     container.appendChild(renderDayAmrap(session, summary.progress));
   } else {

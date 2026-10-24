@@ -201,17 +201,13 @@ window.workoutLibrary = (() => {
       const value = parseSetResult(summary.progress.results[step.key], step.exercise);
       if (Object.keys(value).length) measurements[step.key] = value;
     }
-    const extra = summary.progress.amrap.extraReps;
-    const extraReps = extra === "" || extra === undefined ? null : Number(extra);
-    if (session.type === "amrap" && extraReps !== null
-      && (!Number.isInteger(extraReps) || extraReps < 0 || extraReps > 100000)) {
-      throw new Error("Ripetizioni extra: inserisci un intero da 0 a 100000.");
-    }
+    const extraReps = session.type === "amrap"
+      ? parseAmrapCount(summary.progress.amrap.extraReps, "Ripetizioni extra", true) : null;
     return {
       planVersionId: record.id,
       sessionId: session.id,
       steps: Object.fromEntries(summary.steps.map((step) => [step.key, summary.progress.steps[step.key]])),
-      amrapRounds: session.type === "amrap" ? summary.progress.amrap.rounds : null,
+      amrapRounds: session.type === "amrap" ? parseAmrapCount(summary.progress.amrap.rounds, "Giri completi") : null,
       measurements,
       amrapExtraReps: session.type === "amrap" ? extraReps : null,
     };

@@ -245,6 +245,16 @@ function formatAmrapResult(rounds, extraReps) {
   return `${rounds} giri${extraReps === "" || extraReps == null ? "" : ` + ${extraReps} ripetizioni extra`}`;
 }
 
+function parseAmrapCount(raw, label, optional = false) {
+  if (optional && (raw === "" || raw === undefined || raw === null)) return null;
+  const value = Number(raw);
+  if (!["number", "string"].includes(typeof raw) || (typeof raw === "string" && !raw.trim())
+    || !Number.isInteger(value) || value < 0 || value > 100000) {
+    throw new Error(`${label}: inserisci un numero intero da 0 a 100000.`);
+  }
+  return value;
+}
+
 function updateRestTimer(sessionId, timer) {
   const store = readProgressStore();
   const progress = getStoredSession(store, sessionId);

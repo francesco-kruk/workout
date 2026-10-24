@@ -14,9 +14,9 @@ function validateWorkoutPlan(plan) {
     }
     ids.add(value);
   };
-  const array = (value, path, max) => {
-    if (!Array.isArray(value) || value.length < 1 || value.length > max) {
-      errors.push(`${path}: inserisci da 1 a ${max} elementi.`);
+  const array = (value, path, max, min = 1) => {
+    if (!Array.isArray(value) || value.length < min || value.length > max) {
+      errors.push(`${path}: inserisci da ${min} a ${max} elementi.`);
       return [];
     }
     return value;
@@ -29,7 +29,7 @@ function validateWorkoutPlan(plan) {
     errors.push("trackingId: identificatore dello storico non valido.");
   }
   text(plan.title, "Titolo");
-  for (const [index, item] of array(plan.warmup, "Riscaldamento", 50).entries()) {
+  for (const [index, item] of array(plan.warmup, "Riscaldamento", 50, 0).entries()) {
     const path = `Riscaldamento ${index + 1}`;
     if (!object(item)) { errors.push(`${path}: elemento non valido.`); continue; }
     id(item.id, path);

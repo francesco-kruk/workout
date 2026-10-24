@@ -212,6 +212,289 @@ function controlWorkoutClock(w) {
   };
 }
 
+function fakeAudio(w, { rejectResume = false, rejectPlayback = false } = {}) {
+  const calls = { beeps: 0, resumes: 0, disconnected: 0, contexts: 0 };
+  w.AudioContext = class {
+    constructor() {
+      calls.contexts += 1;
+      this.state = "suspended";
+      this.currentTime = 0;
+      this.destination = {};
+    }
+    async resume() {
+      calls.resumes += 1;
+      if (rejectResume) throw new Error("Audio bloccato");
+      this.state = "running";
+    }
+    createOscillator() {
+      if (rejectPlayback) throw new Error("Riproduzione fallita");
+      return {
+        frequency: {}, connect() {},
+        disconnect() { calls.disconnected += 1; },
+        start() { calls.beeps += 1; },
+        stop() { this.onended(); },
+      };
+    }
+    createGain() {
+      return {
+        connect() {}, disconnect() { calls.disconnected += 1; },
+        gain: { setValueAtTime() {}, linearRampToValueAtTime() {} },
+      };
+    }
+  };
+  return calls;
+}
+
+function startRest(w) {
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  input(w, "Peso (kg)", "20");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+}
+
+test("new plans save without warm-up and existing warm-up can be fully removed and restored in a draft", async (t) => {
+  const first = await mount(t);
+  click(first.w, "Crea scheda");
+  input(first.w, "Nome giornata", "Senza riscaldamento");
+  input(first.w, "Nome esercizio", "Squat");
+  input(first.w, "Obiettivo / ripetizioni", "8-12 ripetizioni");
+  submitForm(first.w, first.app.querySelector(".plan-editor"));
+  await until(() => first.w.workoutLibrary.snapshot().record);
+  assert.equal(first.state.plans.get(alice).definition.warmup.length, 0);
+  navigate(first.w, "workout");
+  assert.ok(first.app.querySelector("[data-complete-set]"));
+  assert.doesNotMatch(first.app.textContent, /Riscaldamento/);
+  navigate(first.w, "plan");
+  assert.doesNotMatch(first.app.textContent, /Riscaldamento/);
+  click(first.w, "Piano completo");
+  assert.doesNotMatch(first.app.textContent, /Riscaldamento/);
+
+  const plans = new Map([[alice, record(alice, "Con riscaldamento")]]);
+  const second = await mount(t, { plans });
+  click(second.w, "Modifica piano");
+  const remove = [...second.app.querySelectorAll("button")].find((button) => button.textContent === "Rimuovi");
+  assert.equal(remove.disabled, false);
+  remove.click();
+  assert.equal(second.w.workoutLibrary.getDraft().definition.warmup.length, 0);
+  assert.ok([...second.app.querySelectorAll("button")].filter((button) => button.textContent === "Rimuovi")
+    .some((button) => button.disabled));
+  const reloaded = await mount(t, { plans, storage: snapshotStorage(second.w) });
+  click(reloaded.w, "Riprendi modifica");
+  assert.equal(reloaded.w.workoutLibrary.getDraft().definition.warmup.length, 0);
+  assert.equal(reloaded.w.workoutLibrary.snapshot().plan.warmup.length, 1);
+  click(reloaded.w, "Aggiungi riscaldamento");
+  assert.equal(reloaded.w.workoutLibrary.getDraft().definition.warmup.length, 1);
+});
+
+test("empty warm-up JSON round-trips and both workout types complete without warm-up", async (t) => {
+  const noWarmup = structuredClone(definition);
+  noWarmup.warmup = [];
+  const { w, app } = await mount(t);
+  const file = app.querySelector('input[type="file"]');
+  Object.defineProperty(file, "files", { value: [{ size: 500, text: async () => JSON.stringify(noWarmup) }] });
+  file.dispatchEvent(new w.Event("change"));
+  await until(() => app.querySelector(".plan-editor"));
+  let exported;
+  w.URL.createObjectURL = (blob) => { exported = blob; return "blob:no-warmup"; };
+  w.URL.revokeObjectURL = () => {};
+  w.HTMLAnchorElement.prototype.click = () => {};
+  click(w, "Esporta JSON");
+  const reader = new w.FileReader();
+  const content = new Promise((resolve, reject) => {
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+  });
+  reader.readAsText(exported);
+  assert.deepEqual(JSON.parse(await content).warmup, []);
+  submitForm(w, app.querySelector(".plan-editor"));
+  await until(() => w.workoutLibrary.snapshot().record);
+  Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
+  navigate(w, "workout");
+  completeSet(w);
+  completeSet(w);
+  click(w, "Salta");
+  assert.ok(app.querySelector(".completion-card"));
+  assert.equal(w.pendingAttendance(alice).length, 1);
+  click(w, "Passa a Circuito");
+  w.updateAmrap("circuit", { remainingMilliseconds: 0, rounds: 2 });
+  navigate(w, "plan");
+  navigate(w, "workout");
+  click(w, "Completa AMRAP");
+  assert.equal(w.pendingAttendance(alice).length, 2);
+  for (const receipt of w.pendingAttendance(alice)) {
+    assert.ok(Object.keys(receipt.workout.steps).every((key) => !key.startsWith("warmup:")));
+  }
+});
+
+test("integer inputs give immediate accessible feedback and recover without rounding", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Numeri")]]) });
+  click(w, "Modifica piano");
+  const sets = input(w, "Serie obbligatorie", "1.5");
+  assert.equal(sets.step, "1");
+  assert.equal(sets.getAttribute("aria-invalid"), "true");
+  assert.match(w.document.getElementById(sets.getAttribute("aria-describedby")).textContent, /numero intero/);
+  submitForm(w, app.querySelector(".plan-editor"));
+  assert.equal(w.workoutLibrary.snapshot().record.revision, 1);
+  input(w, "Serie obbligatorie", "2");
+  assert.equal(sets.getAttribute("aria-invalid"), "false");
+  input(w, "Serie opzionali", "-1");
+  assert.equal(app.querySelector(".plan-editor").checkValidity(), false);
+  input(w, "Serie opzionali", "0");
+  assert.equal(app.querySelector(".plan-editor").checkValidity(), true);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  input(w, "Peso (kg)", "12.25");
+  const reps = input(w, "Ripetizioni", "2.5");
+  assert.equal(reps.getAttribute("aria-invalid"), "true");
+  assert.match(app.querySelector("[data-measurement-error]").textContent, /Ripetizioni.*numero intero/);
+  assert.equal(app.querySelector("[data-complete-set]").disabled, true);
+  input(w, "Ripetizioni", "2");
+  assert.equal(reps.getAttribute("aria-invalid"), "false");
+  assert.equal(app.querySelector("[data-complete-set]").disabled, false);
+
+  Object.defineProperty(reps, "validity", { configurable: true, get: () => ({ valid: false, badInput: true }) });
+  reps.value = "";
+  reps.dispatchEvent(new w.Event("input", { bubbles: true }));
+  assert.equal(app.querySelector("[data-complete-set]").disabled, true);
+  assert.equal(w.getProgress("strength").results["squat:0"].reps, "invalid");
+  delete reps.validity;
+  input(w, "Ripetizioni", "0");
+  assert.equal(app.querySelector("[data-complete-set]").disabled, false);
+});
+
+test("AMRAP extra reps reject invalid whole-number values and permit blank or zero", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "AMRAP")]]) });
+  w.setCurrentSessionId("circuit");
+  w.setStepStatus("circuit", "warmup:warm", "completed");
+  w.updateAmrap("circuit", { remainingMilliseconds: 0, rounds: 2 });
+  navigate(w, "workout");
+  const complete = [...app.querySelectorAll("button")].find((button) => button.textContent === "Completa AMRAP");
+  for (const value of ["1.5", "-1", "100001"]) {
+    const extra = input(w, "Ripetizioni extra (facoltative)", value);
+    assert.equal(complete.disabled, true);
+    assert.equal(extra.getAttribute("aria-invalid"), "true");
+    assert.match(app.querySelector("[data-measurement-error]").textContent, /numero intero/);
+  }
+  for (const value of ["0", ""]) {
+    input(w, "Ripetizioni extra (facoltative)", value);
+    assert.equal(complete.disabled, false);
+  }
+});
+
+test("rest beeps once on natural expiry, with no duplicate visibility or interval alert", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Suono")]]) });
+  const audio = fakeAudio(w);
+  const clock = controlWorkoutClock(w);
+  startRest(w);
+  await Promise.resolve();
+  assert.equal(audio.contexts, 1);
+  assert.equal(audio.beeps, 0);
+  clock.advance(60000);
+  assert.equal(audio.beeps, 1);
+  assert.equal(audio.disconnected, 2);
+  assert.equal(app.querySelector(".rest-timer"), null);
+  Object.defineProperty(w.document, "hidden", { value: false, configurable: true });
+  w.document.dispatchEvent(new w.Event("visibilitychange"));
+  clock.advance(60000);
+  assert.equal(audio.beeps, 1);
+});
+
+test("rest audio respects pause/resume, skip, visibility catch-up, and navigation cleanup", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Ciclo audio")]]) });
+  const audio = fakeAudio(w);
+  const clock = controlWorkoutClock(w);
+  startRest(w);
+  await Promise.resolve();
+  click(w, "Pausa");
+  clock.advance(120000);
+  assert.equal(audio.beeps, 0);
+  click(w, "Riprendi");
+  clock.advance(60000, false);
+  Object.defineProperty(w.document, "hidden", { value: false, configurable: true });
+  w.document.dispatchEvent(new w.Event("visibilitychange"));
+  assert.equal(audio.beeps, 1);
+  input(w, "Peso (kg)", "20");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  click(w, "Salta recupero");
+  assert.equal(audio.beeps, 1);
+  click(w, "Indietro");
+  click(w, "Serie completata");
+  assert.ok(app.querySelector(".rest-timer"));
+  navigate(w, "profile");
+  clock.advance(60000);
+  assert.equal(audio.beeps, 1);
+  navigate(w, "workout");
+  assert.equal(app.querySelector(".rest-timer"), null);
+  assert.equal(audio.beeps, 1);
+});
+
+test("Profile mute persists across reload, applies at expiry, and enables audio again", async (t) => {
+  const plans = new Map([[alice, record(alice, "Muto")]]);
+  const { w, app } = await mount(t, { plans });
+  const audio = fakeAudio(w);
+  const clock = controlWorkoutClock(w);
+  startRest(w);
+  await Promise.resolve();
+  w.workoutAudio.setMuted(true);
+  clock.advance(60000);
+  assert.equal(audio.beeps, 0);
+  navigate(w, "profile");
+  assert.equal(app.querySelector("[data-rest-sound-muted]").checked, true);
+  const reloaded = await mount(t, { plans, storage: snapshotStorage(w) });
+  const reloadedAudio = fakeAudio(reloaded.w);
+  assert.equal(reloaded.app.querySelector("[data-rest-sound-muted]").checked, true);
+  reloaded.app.querySelector("[data-rest-sound-muted]").click();
+  await Promise.resolve();
+  assert.equal(reloaded.w.workoutAudio.muted(), false);
+  assert.equal(reloadedAudio.contexts, 1);
+  assert.equal(reloaded.w.localStorage.getItem("workout.restSoundMuted"), "false");
+  navigate(reloaded.w, "plan");
+  navigate(reloaded.w, "profile");
+  assert.equal(reloaded.app.querySelector("[data-rest-sound-muted]").checked, false);
+});
+
+test("unsupported, blocked, or failed audio stays explicit without stopping rest completion", async (t) => {
+  for (const failure of ["unsupported", "resume", "playback"]) {
+    const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, failure)]]) });
+    if (failure !== "unsupported") fakeAudio(w, { rejectResume: failure === "resume", rejectPlayback: failure === "playback" });
+    const clock = controlWorkoutClock(w);
+    startRest(w);
+    await Promise.resolve();
+    await Promise.resolve();
+    clock.advance(60000);
+    assert.equal(w.getProgress("strength").restTimer, null);
+    assert.ok(app.querySelector("[data-complete-set]"));
+    assert.match(app.querySelector("[data-audio-status]").textContent, /Suono del recupero non disponibile/);
+  }
+});
+
+test("Profile reports failed preference writes and restores the saved mute state", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Preferenze")]]) });
+  navigate(w, "profile");
+  const originalSetItem = w.Storage.prototype.setItem;
+  w.Storage.prototype.setItem = function (key, value) {
+    if (key === "workout.restSoundMuted") throw new Error("Spazio esaurito");
+    return originalSetItem.call(this, key, value);
+  };
+  app.querySelector("[data-rest-sound-muted]").click();
+  assert.equal(app.querySelector("[data-rest-sound-muted]").checked, false);
+  assert.match(app.textContent, /Preferenza audio non salvata.*Spazio esaurito/);
+});
+
+test("Profile reports failed preference reads rather than silently enabling sound", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Preferenze")]]) });
+  const originalGetItem = w.Storage.prototype.getItem;
+  w.Storage.prototype.getItem = function (key) {
+    if (key === "workout.restSoundMuted") throw new Error("Memoria non disponibile");
+    return originalGetItem.call(this, key);
+  };
+  navigate(w, "profile");
+  assert.equal(app.querySelector("[data-rest-sound-muted]").disabled, true);
+  assert.match(app.textContent, /Preferenza audio non disponibile.*Memoria non disponibile/);
+});
+
 test("password sign-in opens the private app in place without storing the password", async (t) => {
   const { w, state, app } = await mount(t, { signedIn: false });
   let release;
@@ -640,6 +923,8 @@ test("first-time member creates a private plan with the editor and can publish w
   assert.match(app.textContent, /Non hai ancora una scheda personale/);
   click(w, "Crea scheda");
   input(w, "Titolo della scheda", "La mia nuova scheda");
+  assert.equal(w.workoutLibrary.getDraft().definition.warmup.length, 0);
+  click(w, "Aggiungi riscaldamento");
   input(w, "Nome", "Mobilità");
   input(w, "Obiettivo", "5 minuti");
   input(w, "Nome giornata", "Giorno A");
@@ -1676,7 +1961,12 @@ test("an already-expired rest timer is cleared during reload without showing a f
   input(first.w, "Ripetizioni", "8");
   click(first.w, "Serie completata");
   first.w.updateRestTimer("strength", { durationSeconds: 60, remainingMilliseconds: 60000, deadline: Date.now() - 1 });
-  const { w, app } = await mount(t, { plans, storage: snapshotStorage(first.w) });
+  let audio;
+  const { w, app } = await mount(t, {
+    plans, storage: snapshotStorage(first.w), beforeBoot: (w) => { audio = fakeAudio(w); },
+  });
+  assert.equal(audio.beeps, 0);
+  assert.equal(audio.contexts, 0);
   assert.equal(app.querySelector(".rest-timer"), null);
   assert.equal(w.getProgress("strength").restTimer, null);
   assert.match(app.querySelector(".focus-kicker").textContent, /serie 2 di 3/);

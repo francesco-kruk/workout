@@ -24,7 +24,7 @@ function renderPlan(container, plan, onInspectDay) {
     warmupList.appendChild(createReadonlyItem(item.name, item.target, item.instructions));
   }
   warmup.appendChild(warmupList);
-  container.appendChild(warmup);
+  if (plan.warmup.length) container.appendChild(warmup);
 
   const sessions = document.createElement("div");
   sessions.className = "plan-sessions";

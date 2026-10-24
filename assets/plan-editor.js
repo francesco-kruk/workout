@@ -198,16 +198,29 @@ function renderPersonalPlan(container) {
     if (min !== undefined) input.min = String(min);
     if (max !== undefined) input.max = String(max);
     if (type !== "number") input.maxLength = 4000;
+    const error = textEl("span", "", "social-status error");
+    if (type === "number") {
+      input.step = "1";
+      input.inputMode = "numeric";
+      error.id = `number-error-${crypto.randomUUID()}`;
+      error.setAttribute("aria-live", "polite");
+      input.setAttribute("aria-describedby", error.id);
+      if (input.value) error.textContent = validateNumberInput(input, label);
+    }
     input.addEventListener("input", () => {
-      model[key] = type === "number" ? (input.value === "" ? (required ? null : 0) : Number(input.value)) : input.value;
+      if (type === "number") error.textContent = validateNumberInput(input, label);
+      model[key] = type === "number"
+        ? (input.value === "" ? (required || input.validity.badInput ? null : 0) : Number(input.value))
+        : input.value;
       try { persist(); } catch (error) { showError(error); }
     });
     wrapper.appendChild(input);
+    if (type === "number") wrapper.appendChild(error);
     parent.appendChild(wrapper);
     return input;
   }
 
-  function collectionControls(parent, items, index) {
+  function collectionControls(parent, items, index, min = 1) {
     const controls = document.createElement("div");
     controls.className = "editor-actions";
     const move = (offset) => {
@@ -222,7 +235,7 @@ function renderPersonalPlan(container) {
     });
     up.disabled = index === 0;
     down.disabled = index === items.length - 1;
-    remove.disabled = items.length === 1;
+    remove.disabled = items.length <= min;
     controls.append(up, down, remove);
     parent.appendChild(controls);
   }
@@ -289,13 +302,14 @@ function renderPersonalPlan(container) {
     options.appendChild(transfers);
     form.appendChild(options);
     const warmup = editorSection("Riscaldamento comune", "warmup");
+    warmup.appendChild(textEl("p", "Facoltativo e comune a tutte le giornate. Aggiungi gli esercizi che vuoi includere oppure lascia il riscaldamento vuoto.", "view-description"));
     definition.warmup.forEach((item, index) => {
       const group = document.createElement("fieldset");
       group.appendChild(textEl("legend", `Riscaldamento ${index + 1}`));
       field(group, "Nome", item, "name", { required: true });
       field(group, "Obiettivo", item, "target", { required: true });
       field(group, "Istruzioni", item, "instructions", { type: "textarea" });
-      collectionControls(group, definition.warmup, index);
+      collectionControls(group, definition.warmup, index, 0);
       warmup.appendChild(group);
     });
     const addWarmup = button("Aggiungi riscaldamento", () => addTo(definition.warmup, newWorkoutItem()));
@@ -378,6 +392,7 @@ function renderPersonalPlan(container) {
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (saving) return;
+      if (!form.reportValidity()) return;
       const errors = validateWorkoutPlan(draft.definition);
       if (errors.length) {
         for (const section of form.querySelectorAll("details")) section.open = true;
@@ -428,5 +443,5 @@ function newWorkoutDay() {
   return { id: `day-${crypto.randomUUID()}`, label: "", type: "standard", instructions: "", exercises: [newWorkoutExercise()] };
 }
 function newWorkoutPlan() {
-  return { version: 2, trackingId: crypto.randomUUID(), title: "La mia scheda", warmup: [newWorkoutItem()], sessions: [newWorkoutDay()] };
+  return { version: 2, trackingId: crypto.randomUUID(), title: "La mia scheda", warmup: [], sessions: [newWorkoutDay()] };
 }
