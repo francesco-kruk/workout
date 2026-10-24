@@ -24,6 +24,10 @@ function validateWorkoutPlan(plan) {
   if (!object(plan)) return ["La scheda deve essere un oggetto JSON."];
   if (JSON.stringify(plan).length > 200000) errors.push("Scheda troppo grande (massimo 200000 caratteri).");
   if (plan.version !== 2) errors.push("version deve essere 2.");
+  if (plan.trackingId !== undefined
+    && (typeof plan.trackingId !== "string" || !/^[a-zA-Z0-9_-]{1,80}$/.test(plan.trackingId))) {
+    errors.push("trackingId: identificatore dello storico non valido.");
+  }
   text(plan.title, "Titolo");
   for (const [index, item] of array(plan.warmup, "Riscaldamento", 50).entries()) {
     const path = `Riscaldamento ${index + 1}`;

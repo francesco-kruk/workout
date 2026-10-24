@@ -25,10 +25,12 @@ await db.exec(`
 await db.exec(await readFile(new URL("../supabase/migrations/202610210001_friends_leaderboard.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610210002_private_workouts.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240001_ranking_objectives.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240002_consistency_ranking.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610240003_performance_tracking.sql", import.meta.url), "utf8"));
 after(() => db.close());
 
 beforeEach(async () => {
-  await db.exec("reset role; truncate public.gym_attendance, public.friend_members, auth.users cascade;");
+  await db.exec("reset role; truncate public.gym_attendance, public.friend_members, auth.users cascade; update public.consistency_settings set starts_on='2020-01-01';");
   for (const id of [alice, bob, outsider]) {
     await db.query("insert into auth.users values ($1)", [id]);
   }
@@ -245,23 +247,32 @@ async function today() {
 
 function oracle(dates, currentDay) {
   const sorted = [...new Set(dates)].sort();
+  const week = (date) => {
+    const day = new Date(`${date}T12:00:00Z`).getUTCDay();
+    return shift(date, -((day + 6) % 7));
+  };
+  const weeks = [...new Set(sorted.map(week))];
+  const multipliers = new Map();
   let streak = 0;
   let previous = null;
   let points = 0;
   let gymDays = 0;
+  for (const monday of weeks) {
+    streak = previous && (new Date(monday) - new Date(previous)) / 86400000 === 7 ? streak + 1 : 1;
+    multipliers.set(monday, Math.min(3, 1 + (streak - 1) * 0.25));
+    previous = monday;
+  }
   for (const date of sorted) {
-    streak = previous && (new Date(date) - new Date(previous)) / 86400000 <= 2 ? streak + 1 : 1;
     if (date.slice(0, 7) === currentDay.slice(0, 7)) {
-      points += 10 * Math.min(3, 1 + (streak - 1) * 0.25);
+      points += 10 * multipliers.get(week(date));
       gymDays += 1;
     }
-    previous = date;
   }
-  if (!previous || (new Date(currentDay) - new Date(previous)) / 86400000 > 2) streak = 0;
+  if (!previous || (new Date(week(currentDay)) - new Date(previous)) / 86400000 > 7) streak = 0;
   return { points, gymDays, streak };
 }
 
-test("distinct dates score with one rest day, gaps reset, and late arrivals recalculate later rewards", async () => {
+test("distinct dates use weekly continuity and late arrivals recalculate rewards", async () => {
   const day = await today();
   const dates = [-12, -10, -7, -6, -4, -3, -2, -1, 0].map((n) => shift(day, n));
   for (const date of [...dates].reverse()) await submit(`${date} 00:00:00 Europe/Rome`);
@@ -269,18 +280,18 @@ test("distinct dates score with one rest day, gaps reset, and late arrivals reca
   const expected = oracle(dates, day);
   assert.equal(Number(row.points), expected.points);
   assert.equal(Number(row.gym_days), expected.gymDays);
-  assert.equal(Number(row.current_streak), expected.streak);
-  assert.equal(Number(row.multiplier), 2.5);
+  assert.equal(Number(row.weekly_streak), expected.streak);
+  assert.equal(Number(row.multiplier), Math.min(3,1 + Math.max(0,expected.streak - 1) * 0.25));
 });
 
 test("cap is 3x and month boundary retains the preceding streak", async () => {
   const day = await today();
-  const dates = Array.from({ length: 45 }, (_, index) => shift(day, index - 44));
+  const dates = Array.from({ length: 80 }, (_, index) => shift(day, index - 79));
   for (const date of dates) await submit(`${date} 00:00:00 Europe/Rome`);
   const row = (await board())[0];
   const expected = oracle(dates, day);
   assert.equal(Number(row.points), expected.points);
-  assert.equal(Number(row.current_streak), 45);
+  assert.equal(Number(row.weekly_streak), expected.streak);
   assert.equal(Number(row.multiplier), 3);
   assert.equal(Number(row.gym_days), expected.gymDays);
   assert.equal(row.month_start.toISOString().slice(0, 10), `${day.slice(0, 7)}-01`);
@@ -303,10 +314,10 @@ test("all members appear, ties share ranks, and stale streaks expire", async () 
   assert.equal(rows.length, 2);
   assert.deepEqual(rows.map((row) => Number(row.position)), [1, 1]);
   assert.deepEqual(rows.map((row) => Number(row.points)), [0, 0]);
-  await submit(`${shift(await today(), -3)} 00:00:00 Europe/Rome`);
+  await submit(`${shift(await today(), -21)} 00:00:00 Europe/Rome`);
   rows = await board();
   const row = rows.find((item) => item.user_id === alice);
-  assert.equal(Number(row.current_streak), 0);
+  assert.equal(Number(row.weekly_streak), 0);
   assert.equal(Number(row.multiplier), 1);
 });
 
@@ -390,9 +401,6 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
     },
     rpc: async (name, args) => {
       try {
-        if (name === "ranking_objectives") return {
-          data: (await db.query("select public.ranking_objectives() as data")).rows[0].data, error: null,
-        };
         if (name === "submit_gym_day") {
           const result = await submit(args.p_completed_at, {
             user: args.p_user_id, event: args.p_event_id,
@@ -476,8 +484,13 @@ test("full app edits a private plan and atomically syncs offline detailed result
     },
     rpc: async (name, args) => {
       try {
-        if (name === "ranking_objectives") return {
-          data: (await db.query("select public.ranking_objectives() as data")).rows[0].data, error: null,
+        if (name === "workout_performance") return {
+          data: (await db.query("select public.workout_performance($1,$2,$3) as data",
+            [args.p_series,args.p_before_completed_at,args.p_before_id])).rows[0].data, error: null,
+        };
+        if (name === "workout_previous") return {
+          data: (await db.query("select public.workout_previous($1,$2,$3) as data",
+            [args.p_plan_version_id,args.p_session_id,args.p_exercise_id])).rows[0].data, error: null,
         };
         if (name === "friends_leaderboard") {
           return { data: (await board()).map((row) => ({ ...row, month_start: row.month_start.toISOString().slice(0, 10) })), error: null };
@@ -489,9 +502,10 @@ test("full app edits a private plan and atomically syncs offline detailed result
           return { data: (await db.query("select public.workout_history($1,$2) as history", [args.p_before_completed_at, args.p_before_id])).rows[0].history, error: null };
         }
         if (name === "submit_workout_result") {
-          await db.query("select public.submit_workout_result($1,$2,$3,$4,$5,$6,$7)",
+          await db.query("select public.submit_workout_result($1,$2,$3,$4,$5,$6,$7,$8,$9)",
             [args.p_user_id, args.p_event_id, args.p_completed_at, args.p_plan_version_id,
-              args.p_session_id, JSON.stringify(args.p_steps), args.p_amrap_rounds]);
+              args.p_session_id, JSON.stringify(args.p_steps), args.p_amrap_rounds,
+              JSON.stringify(args.p_measurements),args.p_amrap_extra_reps]);
           return { data: "accepted", error: null };
         }
         throw new Error(`Unexpected RPC ${name}`);
@@ -521,7 +535,14 @@ test("full app edits a private plan and atomically syncs offline detailed result
   assert.equal(w.workoutLibrary.snapshot().record.revision, 2);
   w.document.querySelector('[data-view="workout"]').click();
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
-  for (const label of ["Riscaldamento completato", "Serie completata", "Salta"]) click(label);
+  click("Riscaldamento completato");
+  for (const [key,value] of [["weightKg","20"],["reps","8"]]) {
+    const input = w.document.querySelector(`[data-actual-field="${key}"]`);
+    input.value = value;
+    input.dispatchEvent(new w.Event("input",{bubbles:true}));
+  }
+  click("Serie completata");
+  click("Salta");
   assert.equal(w.pendingAttendance(alice).length, 1);
   assert.equal(w.pendingAttendance(alice)[0].workout.planVersionId, w.workoutLibrary.snapshot().record.id);
   Object.defineProperty(w.navigator, "onLine", { value: true, configurable: true });
@@ -533,10 +554,14 @@ test("full app edits a private plan and atomically syncs offline detailed result
   assert.equal(history[0].plan_title, "Versione personale aggiornata");
   assert.equal(history[0].revision, 2);
   assert.equal(history[0].steps["squat:1"], "skipped");
+  assert.deepEqual(history[0].measurements,{"squat:0":{weightKg:20,reps:8}});
   assert.equal(Number((await board())[0].points), 10);
   w.document.querySelector('[data-view="profile"]').click();
   for (let attempt = 0; attempt < 100 && w.workoutLibrary.snapshot().historyLoading; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.match(w.document.querySelector("#workout-app").textContent, /Versione personale aggiornata \(v2\)/);
+  const actual = await w.workoutSocial.fetchPerformance();
+  assert.equal(actual.series[0].best_weight,20);
+  assert.equal(actual.results[0].sets[0].reps,8);
 });

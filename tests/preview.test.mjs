@@ -69,22 +69,15 @@ test("local preview injects a demo adapter without changing the production entry
   };
   await settle();
   assert.match(app.textContent, /Punti Aura/);
-  assert.equal(w.workoutSocial.snapshot().objectivesError, "");
-  click("Approva");
-  await settle();
-  assert.equal(w.workoutSocial.snapshot().objectives.proposals[0].status, "approved");
-  assert.match(app.textContent, /Approvato, dal/);
-  const objectiveForm = app.querySelector(".objective-form");
-  const count = objectiveForm.querySelector('[name="enable-count"]');
-  count.checked = true;
-  count.dispatchEvent(new w.Event("input", { bubbles: true }));
-  objectiveForm.dispatchEvent(new w.Event("submit", { cancelable: true }));
-  await settle();
-  assert.equal(w.workoutSocial.snapshot().objectives.proposals[0].status, "pending");
-  assert.equal(JSON.parse(w.localStorage.getItem("workout.preview.database")).objectives.proposals.length, 2);
-  click("Ritira proposta");
-  await settle();
-  assert.equal(w.workoutSocial.snapshot().objectives.proposals[0].status, "withdrawn");
+  assert.equal(app.querySelector(".objective-form"), null);
+  const performance = await w.workoutSocial.fetchPerformance();
+  assert.ok(performance.series.length > 0);
+  assert.ok(performance.results.length > 0);
+  for (let attempt = 0; attempt < 100 && !app.querySelector(".performance-chart"); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(app.querySelector(".performance-chart"));
+  assert.match(app.textContent, /Miglior risultato registrato|Massimi registrati/);
   assert.match(app.querySelector(".profile-summary").textContent, /demo@example.test/);
   const passwordResult = await w.workoutSocial.updatePassword("DemoChanged123!", "Anteprima123!");
   assert.equal(passwordResult.ok, true);

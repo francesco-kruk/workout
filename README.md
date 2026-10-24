@@ -51,8 +51,8 @@ is not supported: there is no service worker.
 1. Create an owner-controlled [Supabase project](https://supabase.com/docs/guides/getting-started).
    Choose its region and review current pricing, retention, and privacy terms.
    The database stores member IDs/display names, private versioned plans, private
-   completed-workout results, shared attendance dates, objective packages, and
-   proposal votes. Email addresses stay
+   completed-workout measurements and shared attendance dates. Retired objective
+   tables are kept as inert legacy data, not active configuration. Email addresses stay
    in Supabase Auth and are not exposed by application tables.
 2. Apply these migrations **in order**, using the SQL Editor or your normal
    Supabase migration workflow:
@@ -61,12 +61,16 @@ is not supported: there is no service worker.
    supabase/migrations/202610210001_friends_leaderboard.sql
    supabase/migrations/202610210002_private_workouts.sql
    supabase/migrations/202610240001_ranking_objectives.sql
+   supabase/migrations/202610240002_consistency_ranking.sql
+   supabase/migrations/202610240003_performance_tracking.sql
    ```
 
    Each migration runs once; apply only migrations not already deployed. Together
    they create the private group, membership
    rules, immutable per-user plans, private history, and atomic result/attendance
-   submissions, and majority-approved ranking objectives. No existing attendance
+   submissions, universal weekly consistency scoring, and private performance
+   tracking. The historical objectives migration is still required in the chain;
+   the following migration retires its public workflow. No existing attendance
    is discarded or invented.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
    allowed Redirect URL to `https://francesco-kruk.github.io/workout/`, including
@@ -177,8 +181,9 @@ Removing membership also cascades their private plans and completed history.
 completo** for a compact, expandable overview. This is a training cycle, not a
 calendar schedule. Inspecting another day does not change the active training
 day or its progress. **Allenamento** remains the step-by-step training screen.
-**Profilo > Progressi** combines current-device workout completion, synchronized monthly
-training days/Punti Aura, weekly streak/multiplier, personal objectives and votes,
+**Profilo > Progressi** leads with private exercise/circuit performance trends,
+previous-result comparisons, and recorded bests, followed by current-device workout
+completion, monthly training days/Punti Aura, the universal weekly multiplier,
 private history, and the friends ranking.
 Local pending results are labeled separately from synchronized scores and history.
 
@@ -217,13 +222,69 @@ There is one current plan per user, with immutable prior versions:
 - **Finish:** one atomic database operation stores the completed workout and
   records daily attendance. The result contains the immutable plan version,
   training-day ID, completion time, each step's completed/skipped status, and
-  AMRAP rounds. Several workouts on the same date appear separately in history
+  optional actual set measurements, and AMRAP rounds/extra reps. Several workouts on the same date appear separately in history
   but earn daily leaderboard credit only once.
 - **History:** **Profilo > Storico privato** displays private completed workouts, with
-  original exercise targets/definitions, step results, and AMRAP rounds.
-  **Carica precedenti** loads older results in pages of 20. We do not invent
-  actual weights/repetitions: the current training UI records step completion
-  and AMRAP rounds, not those additional measurements.
+  original exercise targets/definitions, step results, actual measurements, and AMRAP results.
+  **Carica precedenti** loads older workouts in pages of 20. Missing historical
+  measurements are shown as unrecorded, never zero or inferred from targets.
+
+### Recording actual performance
+
+In **Allenamento**, each standard-set card has **Risultato effettivo (facoltativo)**:
+enter **Peso (kg)** and choose **Ripetizioni** or **Durata (secondi)**, then press
+**Serie completata**. Log 20 kg today and 22 kg next time without editing the plan.
+The prescribed target remains separate. **Ultima volta** is a read-only reference
+for the same set in the latest comparable recorded workout; it is never silently
+prefilled as today's performance.
+
+Inputs persist locally through navigation/reload. Use **Indietro** to correct sets
+before the workout finishes. The last outstanding step automatically snapshots
+all measurements into the durable completion receipt before synchronization.
+Saved workouts are immutable; undo/recomplete does not rewrite a submitted result.
+Start a new run to record a new workout. New runs start with blank measurements.
+Changing future prescriptions still uses **Piano > Modifica piano**.
+
+Measurements are optional. Blank means unrecorded; explicit 0 kg means no external
+load, not measured body weight. Weight accepts 0–2000 kg with two decimals, reps and
+AMRAP extra reps accept integers 0–100000, and duration accepts integer seconds
+0–86400. The browser and database reject invalid values explicitly. No automatic
+unit/target parsing, assisted-load inference, or estimated 1RM is performed.
+Skipped sets and jump-ahead completion do not invent actual values.
+
+AMRAP keeps the timer and full-round counter and adds **Ripetizioni extra**:
+the total completed repetitions after the last full circuit. These are displayed
+separately; free-text exercise targets are not converted into fractional rounds.
+The timer still has to finish before **Completa AMRAP**.
+
+### Understanding your progress
+
+In **Profilo > Progressi > La tua evoluzione**, select an exercise/circuit and a
+metric to see dated trends, per-set details, and latest-versus-previous changes.
+Standard-exercise bests are independent maximum weights, reps, and seconds—not
+necessarily achieved together. A heavier weight at fewer reps is not labeled an
+unconditional improvement. AMRAP bests compare full rounds first, then extra reps.
+
+Bests and previous-result queries use the whole synchronized history, not only
+the first 20 workouts. Trend results paginate separately in pages of 20; the UI
+states how much is loaded, and the graph represents those loaded results.
+Pending offline results are identified separately and do not enter synchronized
+statistics until accepted. Failures show retry controls and label retained data
+with its update time.
+
+Ordinary plan edits preserve comparison identity through the plan's optional
+`trackingId` namespace and existing exercise IDs. Standard exercises also require
+unchanged movement name/instructions; targets, rest, and set counts can evolve.
+AMRAP comparisons require the same day identity, duration, ordered exercises,
+targets, and instructions. New plans/imports receive a fresh namespace even if
+their names/IDs match existing exercises. Old plans without a namespace use a
+legacy namespace, retaining compatibility. Do not manually reuse IDs/namespaces
+for a different movement. JSON exports preserve the namespace, but importing
+deliberately starts a new history rather than guessing a link.
+
+Only the owner can read actual performance. Friends see attendance and points,
+never weights, exercise definitions, or private results. Performance does not
+change ranking points.
 
 Database row-level security makes plans and detailed history visible only to
 their owner, even among approved friends. The leaderboard shares attendance and
@@ -251,99 +312,45 @@ only letters, digits, underscores, or hyphens (up to 80 characters).
 Text fields allow up to 4000 characters; the browser limits a compact JSON plan
 to 200000 characters. The editor generates IDs automatically.
 
-## Punti Aura and personal ranking objectives
+## Punti Aura and universal weekly consistency
 
-Apply the ranking-objectives migration **before deploying the new frontend**.
-It records a one-time cutover on the Monday strictly after deployment, in
-Europe/Rome. Before that date, the old workout/rest-day streak still applies;
-existing scores are not rewritten. From cutover, workouts earn 10 **Punti Aura**
-per distinct date, with no rest-gap penalty. **Aura Pts** is the compact table label.
+Apply the two new migrations **before publishing this frontend**. Keep the old
+migrations in order; do not rerun or edit ones already applied. The consistency
+migration activates immediately on its deployment date in Europe/Rome, counting
+that partial week as the first eligible week. It does not wait until Monday.
+Existing attendance/history is preserved. Pre-activation attendance earns base
+points and cannot build a new-rule streak; no old objective bonuses carry over.
+This transition is intended for the group's current zero-score starting state,
+not preservation of a previously active objective-based competition.
 
-In **Profilo > Progressi > Obiettivi e Punti Aura**, each member can propose a
-package containing any combination of:
+The same rule applies automatically to every approved member—no proposals, votes,
+personal packages, or configurable bonus amounts:
 
-| Objective | Earned bonus |
-| --- | --- |
-| Consecutive active weeks | Proposed step times consecutive weeks with at least one credited date, up to the proposed cap |
-| Weekly frequency | Proposed fixed bonus after the minimum number of distinct workout days (1–7) |
-| Weekly schedule | Proposed fixed bonus when every selected weekday has attendance; additional days are allowed |
+| Consecutive active week | Multiplier | Points per distinct workout date |
+| --- | --- | --- |
+| First | 1x | 10 |
+| Second | 1.25x | 12.5 |
+| Third | 1.5x | 15 |
+| Ninth and later | 3x (cap) | 30 |
 
-The group judges difficulty and fairness by approving the objectives **and**
-their bonus amounts. There is no automatic difficulty formula or global 3x cap.
-Each bonus/step/cap accepts 0.01–999.99 with at most two decimal places; the cap
-must be at least the step. This bounds the numeric representation, not the
-difficulty of a goal. Each type can appear once; a package needs at least one.
-Schedules select exact weekdays, not alternatives such as "Saturday or Sunday".
+An active week has at least one credited date. Weeks run Monday–Sunday in
+Europe/Rome. More dates in one week earn more daily points, not a larger multiplier.
+An empty completed week resets the sequence; an unfinished current week does not
+reset it early. Rest days do not create attendance. The displayed multiplier
+belongs to the most recent active week in the resumable sequence, not a promise
+about a future workout. With no resumable sequence it is 1x.
 
-The proposer cannot vote. A strict majority of the **other** members must
-approve: with three members, both friends must approve. The voter list, names,
-and threshold are frozen at submission. Votes are immutable; repeated identical
-requests are safe. A rejection ends a proposal as soon as approval becomes
-impossible. The owner can withdraw a pending proposal and submit another.
-Only one proposal can be pending per person. Approved packages start the Monday
-strictly after approval (never before cutover). A member with an approved future
-package must wait for activation before proposing another change.
-Removing an eligible voter invalidates pending proposals involving them; it
-does not lower the threshold. Newly added members cannot vote on older proposals.
-The group can see packages, their history, and decisions, but not private
-exercise-level workout history.
+Points apply **immediately on synchronization** with no provisional bonuses,
+Monday settlement, or cron job. Monthly scores reset, but continuity crosses month
+boundaries. Each date's points belong to that date's month; tied totals share ranks.
+Late offline attendance can bridge a missing week and recompute later scores,
+including historical months. `friends_leaderboard(p_month)` accepts a first-of-month
+date for historical totals; clients cannot choose the calculation date or activation.
 
-Weeks run Monday–Sunday in Europe/Rome. A completed week's multiplier is
-`1 + streak bonus + frequency bonus + schedule bonus`; each achieved objective
-contributes independently. For example, a first-week streak step of +0.25x,
-three workout days for +0.5x, and Monday/Saturday/Sunday attendance for +0.5x
-produce 2.25x, or **67.5 Punti Aura** for three dates.
-The current week earns base points immediately; achieved bonuses are displayed
-as provisional and settle the following Monday. No cron job is needed: the
-database derives settlement from server time when scores are read.
-
-An empty completed week resets the consecutive-week sequence, not points already
-earned. The first active week counts as one step. Streaks start at cutover,
-carry across months and package revisions, and never require a particular gap
-between workouts. Without an approved effective package, the multiplier is 1x.
-Earlier weeks always use the package effective on their Monday.
-
-The ranking still resets monthly. Each workout's final points belong to its
-original month, including bonuses settled after that month ends. Late offline
-attendance retains its original date and can recompute that week's bonuses and
-subsequent weekly continuity; ordinary passage of time never erases earned
-points. The server RPC `friends_leaderboard` optionally accepts `p_month`
-(a first-of-month date) for historical monthly totals using today's settlement
-state. Clients cannot choose the settlement date.
-
-The profile shows the current month's Punti Aura, the weekly sequence, the
-most recently completed week's multiplier, provisional weekly bonuses, active
-and scheduled packages, and pending votes. Refresh after synchronization or use
-**Aggiorna / riprova** to fetch other members' latest votes; this is not a
-realtime feed. Offline standings retain their last-updated label. Proposals
-and votes require a connection and are not queued offline.
-
-### Legacy scoring before cutover
-
-| Rule | Behavior |
-| --- | --- |
-| Gym day | All required workout steps completed; optional sets completed or skipped |
-| Daily limit | One credited date per member, even with several workouts/devices |
-| Calendar | Europe/Rome, including daylight-saving changes |
-| Base Punti Aura | 10 Punti Aura for a credited date |
-| Multiplier | Starts at 1x; rises by 0.25 per subsequent workout in the streak; capped at 3x |
-| Streak | Monday then Wednesday continues; Monday then Thursday resets |
-| Rest | No points and no multiplier increase |
-| Ranking | Punti Aura earned this calendar month; tied totals share a rank |
-| Month boundary | Monthly Punti Aura restart; streaks continue |
-
-For example, a continuous sequence earns 10, 12.5, 15, 17.5, ... up to 30
-Punti Aura per gym day. The displayed legacy multiplier belongs to the latest credited
-workout in the active streak, not a promise of points on the next date.
-A streak remains resumable through two calendar dates after the last workout;
-if that second date passes without training, the streak resets. Rest days do
-not create attendance records.
-
-The database derives scores from distinct sorted dates. A late offline completion
-can connect two streak segments and change points on later dates, including
-across a month boundary. The app refreshes standings when opening the tab,
-after syncing, or when **Aggiorna / riprova** is pressed; it is not a realtime feed.
-When disconnected, any displayed standings are labeled with their last update.
+Retired objective/voting RPCs are removed; legacy tables are retained without
+authenticated access and no longer participate in scoring. Older frontends need
+to be refreshed after deployment. Standings refresh on opening Profilo, after
+sync, or with **Aggiorna / riprova**; they are not realtime and retain an update label.
 
 ## Offline and completion semantics
 

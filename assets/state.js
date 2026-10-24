@@ -92,6 +92,7 @@ function getProgress(sessionId) {
     legacyCompletion: stored?.legacyCompletion === true,
     steps: isObject(stored?.steps) ? { ...stored.steps } : {},
     history: Array.isArray(stored?.history) ? [...stored.history] : [],
+    results: isObject(stored?.results) ? { ...stored.results } : {},
     amrap: normalizeAmrap(stored?.amrap),
     restTimer: normalizeRestTimer(stored?.restTimer),
   };
@@ -161,6 +162,45 @@ function updateAmrap(sessionId, updates) {
   return { ...progress.amrap };
 }
 
+function updateSetResult(sessionId, key, values) {
+  const store = readProgressStore();
+  const progress = getStoredSession(store, sessionId);
+  progress.results[key] = { ...values };
+  store.sessions[sessionId] = progress;
+  writeProgressStore(store);
+}
+
+function parseSetResult(input = {}) {
+  const result = {};
+  for (const key of ["weightKg", input.mode === "seconds" ? "seconds" : "reps"]) {
+    const raw = input[key];
+    if (raw === undefined || raw === null || raw === "") continue;
+    const value = Number(raw);
+    const max = key === "weightKg" ? 2000 : key === "seconds" ? 86400 : 100000;
+    if (!Number.isFinite(value) || value < 0 || value > max
+      || (key === "weightKg" ? Math.abs(value * 100 - Math.round(value * 100)) > 0.000001 : !Number.isInteger(value))) {
+      throw new Error(key === "weightKg"
+        ? "Peso: inserisci da 0 a 2000 kg, con al massimo due decimali."
+        : `Inserisci un numero intero da 0 a ${max} ${key === "seconds" ? "secondi" : "ripetizioni"}.`);
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+function formatActualResult(result) {
+  if (!result || !["weightKg", "reps", "seconds"].some((key) => result[key] !== undefined)) return "Non registrato";
+  return [
+    result.weightKg !== undefined ? `${Number(result.weightKg).toLocaleString("it-IT")} kg` : "",
+    result.reps !== undefined ? `${result.reps} ripetizioni` : "",
+    result.seconds !== undefined ? `${result.seconds} secondi` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function formatAmrapResult(rounds, extraReps) {
+  return `${rounds} giri${extraReps === "" || extraReps == null ? "" : ` + ${extraReps} ripetizioni extra`}`;
+}
+
 function updateRestTimer(sessionId, timer) {
   const store = readProgressStore();
   const progress = getStoredSession(store, sessionId);
@@ -180,6 +220,7 @@ function clearProgress(sessionId) {
     runId: crypto.randomUUID(),
     steps: {},
     history: [],
+    results: {},
     amrap: normalizeAmrap(),
     restTimer: null,
   };
@@ -277,6 +318,7 @@ function getStoredSession(store, sessionId) {
     legacyCompletion: stored?.legacyCompletion === true,
     steps: isObject(stored?.steps) ? { ...stored.steps } : {},
     history: Array.isArray(stored?.history) ? [...stored.history] : [],
+    results: isObject(stored?.results) ? { ...stored.results } : {},
     amrap: normalizeAmrap(stored?.amrap),
     restTimer: normalizeRestTimer(stored?.restTimer),
   };
@@ -291,6 +333,7 @@ function normalizeAmrap(amrap) {
       ? Math.max(0, amrap.remainingMilliseconds)
       : legacyMilliseconds,
     rounds: Number.isFinite(amrap?.rounds) ? Math.max(0, amrap.rounds) : 0,
+    extraReps: amrap?.extraReps ?? "",
     completed: Boolean(amrap?.completed),
   };
 }

@@ -127,7 +127,7 @@ function renderDayAmrap(session, progress) {
   const result = document.createElement("div");
   result.className = "amrap-result";
   result.append(
-    textEl("strong", `${progress.amrap.rounds} giri`),
+    textEl("strong", formatAmrapResult(progress.amrap.rounds, progress.amrap.extraReps)),
     createStatusBadge(
       progress.steps[`${session.id}:amrap`] ? "Completato" : "Da completare",
       progress.steps[`${session.id}:amrap`] || "pending"

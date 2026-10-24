@@ -118,12 +118,16 @@ async function mount(t, {
     },
     rpc: async (name, args) => {
       state.calls.push({ name, args });
+      const performance = state.performance;
+      const previous = state.previous;
       if (state.beforeRpc) await state.beforeRpc(name, args);
       if (name === "ranking_objectives") return {
         data: { cutover: "2026-10-26", week_start: "2026-10-19", settles_on: "2026-10-26", proposals: [] },
         error: null,
       };
       if (name === "friends_leaderboard") return { data: state.rows, error: null };
+      if (name === "workout_performance") return { data: performance || { series: [], results: [], more: false }, error: state.performanceError };
+      if (name === "workout_previous") return { data: previous || null, error: state.performanceError };
       if (name === "workout_history") return { data: state.history, error: state.historyError };
       if (name === "save_workout_plan") {
         if (args.p_user_id !== state.id) return { error: new Error("Membership required") };
@@ -146,6 +150,7 @@ async function mount(t, {
           warmup: plan.definition.warmup,
           session: plan.definition.sessions.find((session) => session.id === args.p_session_id),
           steps: args.p_steps, amrap_rounds: args.p_amrap_rounds,
+          measurements: args.p_measurements, amrap_extra_reps: args.p_amrap_extra_reps,
         }];
       }
       return { data: "2026-10-21", error: null };
@@ -741,7 +746,7 @@ test("personal completions queue full result snapshots offline and synchronize i
   navigate(w, "profile");
   await until(() => !w.workoutLibrary.snapshot().historyLoading);
   assert.match(w.document.body.textContent, /Scheda storica \(v1\)/);
-  assert.match(w.document.body.textContent, /Squat, serie 3 · 5 ripetizioni: Saltato/);
+  assert.match(w.document.body.textContent, /Squat, serie 3 · Obiettivo: 5 ripetizioni · Effettivo: Non registrato: Saltato/);
 });
 
 test("a delayed import from an old account cannot overwrite the next account's draft", async (t) => {
@@ -903,7 +908,7 @@ test("Progress separates local completion and pending results from monthly synch
   const { w, state, app } = await mount(t, { plans: new Map([[alice, record(alice, "Piano")]]) });
   state.rows = [{
     user_id: alice, display_name: "Amico", gym_days: 2, points: 22.5,
-    current_streak: 2, multiplier: 1.25, position: 1, month_start: "2026-10-01",
+    weekly_streak: 2, multiplier: 1.25, position: 1, month_start: "2026-10-01",
   }];
   await w.workoutSocial.refresh();
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
@@ -913,8 +918,8 @@ test("Progress separates local completion and pending results from monthly synch
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.equal(app.querySelector(".personal-progress [role=progressbar]").getAttribute("aria-valuenow"), "100");
   assert.deepEqual([...app.querySelectorAll(".progress-metrics dd")].map((cell) => cell.textContent),
-    ["2", "22,5", "2 allenamenti", "1,25×"]);
-  assert.equal(app.querySelector(".progress-metrics .metric-unit").textContent, " allenamenti");
+    ["2", "22,5", "2 settimane", "1,25×"]);
+  assert.equal(app.querySelector(".progress-metrics .metric-unit").textContent, " settimane");
   assert.match(app.textContent, /ottobre 2026/);
   assert.match(app.querySelector(".workout-history").textContent, /1 allenamenti locali in attesa/);
   assert.match(app.querySelector(".workout-history").textContent, /Non ancora inclusi/);
@@ -1278,4 +1283,128 @@ test("switching accounts clears Progress history and metrics without exposing th
   assert.equal(w.getActiveView(), "profile");
   assert.doesNotMatch(app.textContent, /Privato Alice/);
   assert.match(app.textContent, /Nessun allenamento sincronizzato/);
+});
+
+test("per-set actuals persist through navigation and correction, then snapshot atomically offline", async (t) => {
+  const {w,app} = await mount(t,{plans:new Map([[alice,record(alice,"Piano")]])});
+  Object.defineProperty(w.navigator,"onLine",{value:false,configurable:true});
+  navigate(w,"workout");
+  click(w,"Riscaldamento completato");
+  input(w,"Peso (kg)","20");
+  input(w,"Ripetizioni","8");
+  navigate(w,"profile");
+  navigate(w,"workout");
+  assert.equal(app.querySelector('[data-actual-field="weightKg"]').value,"20");
+  click(w,"Serie completata");
+  click(w,"Indietro");
+  assert.equal(app.querySelector('[data-actual-field="reps"]').value,"8");
+  input(w,"Peso (kg)","22");
+  click(w,"Serie completata");
+  const mode = app.querySelector('[aria-label="Misura effettiva"]');
+  mode.value = "seconds";
+  mode.dispatchEvent(new w.Event("change"));
+  input(w,"Durata (secondi)","30");
+  click(w,"Serie completata");
+  click(w,"Salta");
+  const receipt = w.pendingAttendance(alice)[0];
+  assert.deepEqual(JSON.parse(JSON.stringify(receipt.workout.measurements)),
+    {"squat:0":{weightKg:22,reps:8},"squat:1":{seconds:30}});
+  assert.equal(receipt.workout.amrapExtraReps,null);
+  navigate(w,"profile");
+  navigate(w,"workout");
+  assert.equal(w.pendingAttendance(alice).length,1);
+  w.clearProgress("strength");
+  navigate(w,"plan");
+  navigate(w,"workout");
+  click(w,"Riscaldamento completato");
+  assert.equal(app.querySelector('[data-actual-field="weightKg"]').value,"");
+  assert.equal(app.querySelector('[data-actual-field="reps"]').value,"");
+});
+
+test("invalid actual input blocks completion while blanks and explicit zero remain distinct", async (t) => {
+  const {w,app} = await mount(t,{plans:new Map([[alice,record(alice,"Piano")]])});
+  Object.defineProperty(w.navigator,"onLine",{value:false,configurable:true});
+  navigate(w,"workout");
+  click(w,"Riscaldamento completato");
+  input(w,"Peso (kg)","-1");
+  click(w,"Serie completata");
+  assert.equal(w.getProgress("strength").steps["squat:0"],undefined);
+  assert.match(app.querySelector("[data-measurement-error]").textContent,/Controlla/);
+  input(w,"Peso (kg)","0");
+  input(w,"Ripetizioni","0");
+  click(w,"Serie completata");
+  click(w,"Serie completata");
+  click(w,"Salta");
+  assert.deepEqual(JSON.parse(JSON.stringify(w.pendingAttendance(alice)[0].workout.measurements)),
+    {"squat:0":{weightKg:0,reps:0}});
+});
+
+test("previous set values are reference-only and AMRAP extra reps survive navigation and completion", async (t) => {
+  const {w,state,app} = await mount(t,{plans:new Map([[alice,record(alice,"Piano")]])});
+  state.previous = {completed_at:"2026-10-01Z",sets:[{set:1,weightKg:20,reps:8}],rounds:4,extra_reps:2};
+  navigate(w,"workout");
+  click(w,"Riscaldamento completato");
+  await until(() => /20 kg/.test(app.querySelector(".previous-result").textContent));
+  assert.equal(app.querySelector('[data-actual-field="weightKg"]').value,"");
+  Object.defineProperty(w.navigator,"onLine",{value:false,configurable:true});
+  w.setCurrentSessionId("circuit");
+  w.updateAmrap("circuit",{remainingMilliseconds:0,rounds:5});
+  navigate(w,"plan");
+  navigate(w,"workout");
+  click(w,"Riscaldamento completato");
+  input(w,"Ripetizioni extra (facoltative)","7");
+  navigate(w,"profile");
+  navigate(w,"workout");
+  assert.equal(app.querySelector('[data-actual-field="extraReps"]').value,"7");
+  click(w,"Completa AMRAP");
+  const receipt = w.pendingAttendance(alice)[0];
+  assert.equal(receipt.workout.amrapRounds,5);
+  assert.equal(receipt.workout.amrapExtraReps,7);
+});
+
+test("private performance displays actual set comparisons and full-history bests with retry states", async (t) => {
+  const {w,state,app} = await mount(t,{plans:new Map([[alice,record(alice,"Piano")]])});
+  const key = "a".repeat(32);
+  state.performance = {
+    series:[{series_key:key,name:"Squat",context:"Forza",kind:"standard",workouts:25,best_weight:100,best_reps:8,best_seconds:null}],
+    results:[
+      {id:"new",series_key:key,completed_at:"2026-10-20Z",sets:[{set:1,weightKg:22,reps:8}],max_weight:22,max_reps:8,max_seconds:null},
+      {id:"old",series_key:key,completed_at:"2026-10-13Z",sets:[{set:1,weightKg:20,reps:8}],max_weight:20,max_reps:8,max_seconds:null},
+    ],more:true,
+  };
+  navigate(w,"profile");
+  await until(() => Boolean(app.querySelector(".performance-chart")));
+  assert.match(app.querySelector(".personal-performance").textContent,/\+2 kg/);
+  assert.match(app.querySelector(".personal-performance").textContent,/100 kg/);
+  assert.match(app.querySelector(".personal-performance").textContent,/2 risultati caricati di 25/);
+  assert.equal(app.querySelector(".performance-table tbody").children.length,2);
+  state.performanceError = new Error("Rete assente");
+  click(w,"Aggiorna statistiche");
+  await until(() => /Rete assente/.test(app.querySelector(".personal-performance").textContent));
+  assert.match(app.querySelector(".personal-performance").textContent,/dati precedenti/);
+  assert.match(app.querySelector(".personal-performance").textContent,/\+2 kg/);
+  state.performanceError = null;
+  click(w,"Riprova statistiche");
+  await until(() => !/Rete assente/.test(app.querySelector(".personal-performance").textContent));
+});
+
+test("late performance responses cannot expose the previous account's measurements", async (t) => {
+  const {w,state,app} = await mount(t,{plans:new Map([[alice,record(alice,"Alice")],[bob,record(bob,"Bob")]])});
+  state.performance = {
+    series:[{series_key:"a".repeat(32),name:"Privato Alice",context:"Forza",kind:"standard",workouts:1,best_weight:100}],
+    results:[],more:false,
+  };
+  const releases = [];
+  state.beforeRpc = (name) => name === "workout_performance" && state.id === alice
+    ? new Promise((resolve) => releases.push(resolve)) : undefined;
+  navigate(w,"profile");
+  await until(() => releases.length > 0);
+  state.performance = {series:[],results:[],more:false};
+  state.id = bob;
+  state.callback("SIGNED_IN",{user:{id:bob}});
+  await until(() => w.workoutSocial.snapshot().accessReady && !w.workoutSocial.snapshot().busy);
+  for (const release of releases) release();
+  await new Promise((resolve) => setTimeout(resolve,10));
+  assert.doesNotMatch(app.textContent,/Privato Alice|100 kg/);
+  assert.match(app.textContent,/Nessuna misurazione sincronizzata/);
 });
