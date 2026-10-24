@@ -966,6 +966,18 @@ body:not(.auth-entry) main {
   margin: 4px 0;
 }
 
+.plan-editor .tracking-weight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.plan-editor .tracking-weight input {
+  width: 24px;
+  height: 24px;
+  accent-color: var(--text);
+}
+
 .actual-results {
   min-width: 0;
   margin: 16px 0;

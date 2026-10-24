@@ -198,7 +198,7 @@ window.workoutLibrary = (() => {
     const measurements = {};
     for (const step of summary.steps) {
       if (step.type !== "set" || summary.progress.steps[step.key] !== "completed") continue;
-      const value = parseSetResult(summary.progress.results[step.key]);
+      const value = parseSetResult(summary.progress.results[step.key], step.exercise);
       if (Object.keys(value).length) measurements[step.key] = value;
     }
     const extra = summary.progress.amrap.extraReps;

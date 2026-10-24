@@ -59,6 +59,8 @@
       "exercises": [
         {
           "id": "a-wall-handstand-hold",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Tenuta in verticale al muro",
           "sets": 4,
           "target": "15-25 secondi",
@@ -67,6 +69,8 @@
         },
         {
           "id": "a-pull-up",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Trazioni",
           "sets": 5,
           "target": "6-8 ripetizioni",
@@ -75,6 +79,8 @@
         },
         {
           "id": "a-push-up",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Piegamenti",
           "sets": 6,
           "target": "15 ripetizioni",
@@ -83,6 +89,8 @@
         },
         {
           "id": "a-pull-up-hold",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Tenuta in trazione",
           "sets": 3,
           "target": "15 secondi",
@@ -98,6 +106,8 @@
       "exercises": [
         {
           "id": "b-box-walk",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Camminata in verticale su box",
           "sets": 3,
           "target": "4-5 ripetizioni",
@@ -106,6 +116,8 @@
         },
         {
           "id": "b-incline-australian",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Trazioni australiane inclinate con piedi su box",
           "sets": 5,
           "target": "8 ripetizioni",
@@ -114,6 +126,8 @@
         },
         {
           "id": "b-v-push-up",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Piegamenti a V con piedi su box",
           "sets": 5,
           "target": "8 ripetizioni",
@@ -122,6 +136,8 @@
         },
         {
           "id": "b-false-grip-hold",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Tenuta appesa in false grip",
           "sets": 3,
           "target": "20-25 secondi",
@@ -137,6 +153,8 @@
       "exercises": [
         {
           "id": "c-planche-lean",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Tenuta planche lean",
           "sets": 3,
           "target": "10-15 secondi",
@@ -145,6 +163,8 @@
         },
         {
           "id": "c-chin-up",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Trazioni supine",
           "sets": 5,
           "target": "8 ripetizioni",
@@ -153,6 +173,8 @@
         },
         {
           "id": "c-incline-push-up",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Piegamenti inclinati",
           "sets": 5,
           "target": "10 ripetizioni",
@@ -161,6 +183,8 @@
         },
         {
           "id": "c-wrist-curl",
+          "measurementMode": "reps",
+          "usesWeight": true,
           "name": "Flessioni dei polsi",
           "sets": 3,
           "target": "8-10 ripetizioni",
@@ -176,6 +200,8 @@
       "exercises": [
         {
           "id": "d-hs-angoli",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Verticale: tenute a vari angoli",
           "sets": 3,
           "target": "1 blocco",
@@ -184,6 +210,8 @@
         },
         {
           "id": "d-ring-dip",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Dip agli anelli",
           "sets": 5,
           "target": "6-8 ripetizioni",
@@ -192,6 +220,8 @@
         },
         {
           "id": "d-ring-pull-up",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Trazioni agli anelli",
           "sets": 5,
           "target": "6-8 ripetizioni",
@@ -200,6 +230,8 @@
         },
         {
           "id": "d-warmup-gambe",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Riscaldamento gambe",
           "sets": 2,
           "target": "10 squat a corpo libero, 8 affondi per gamba, 10 squat con salto",
@@ -208,6 +240,8 @@
         },
         {
           "id": "d-squat-bulgarian",
+          "measurementMode": "reps",
+          "usesWeight": true,
           "name": "Squat + squat bulgaro",
           "sets": 5,
           "optionalSets": 1,
@@ -224,6 +258,8 @@
       "exercises": [
         {
           "id": "e-handstand",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Verticale",
           "sets": 3,
           "target": "5 spinte scapolari + 1 discesa",
@@ -232,6 +268,8 @@
         },
         {
           "id": "e-archer-pull-up",
+          "measurementMode": "reps",
+          "usesWeight": false,
           "name": "Trazioni archer",
           "sets": 5,
           "target": "4-5 ripetizioni",
@@ -240,6 +278,8 @@
         },
         {
           "id": "e-bar-dip",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Dip alla sbarra",
           "sets": 5,
           "target": "30 secondi di lavoro",
@@ -248,6 +288,8 @@
         },
         {
           "id": "e-warmup",
+          "measurementMode": "reps",
+          "usesWeight": true,
           "name": "Riscaldamento stacco e squat",
           "sets": 2,
           "target": "10 stacchi + 10 squat",
@@ -256,6 +298,8 @@
         },
         {
           "id": "e-stacco-affondi",
+          "measurementMode": "reps",
+          "usesWeight": true,
           "name": "Stacco + Affondi",
           "sets": 5,
           "optionalSets": 1,
@@ -336,6 +380,8 @@
       "exercises": [
         {
           "id": "core-barchetta",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Barchetta",
           "sets": 1,
           "target": "20 secondi",
@@ -344,6 +390,8 @@
         },
         {
           "id": "core-pallina-bastone",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Pallina - Bastone",
           "sets": 1,
           "target": "20 secondi",
@@ -352,6 +400,8 @@
         },
         {
           "id": "core-raises-barchetta",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Sollevamenti in barchetta con ginocchia al petto",
           "sets": 1,
           "target": "20 secondi",
@@ -360,6 +410,8 @@
         },
         {
           "id": "core-crunch-farfalla",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Crunch con gambe a farfalla",
           "sets": 1,
           "target": "20 secondi",
@@ -368,6 +420,8 @@
         },
         {
           "id": "core-cardio",
+          "measurementMode": "seconds",
+          "usesWeight": false,
           "name": "Cardio",
           "sets": 1,
           "target": "Durata libera",

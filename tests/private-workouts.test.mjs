@@ -15,7 +15,7 @@ const definition = {
   warmup: [{ id: "warm", name: "Mobilità", target: "5 minuti", instructions: "" }],
   sessions: [
     { id: "strength", label: "Forza", type: "standard", exercises: [
-      { id: "squat", name: "Squat", sets: 2, optionalSets: 1, target: "5 ripetizioni", rest: "60 secondi" },
+      { id: "squat", name: "Squat", sets: 2, optionalSets: 1, target: "5 ripetizioni", rest: "60 secondi", measurementMode: "reps", usesWeight: true },
     ] },
     { id: "circuit", label: "Circuito", type: "amrap", duration: "1 min", exercises: [
       { id: "push", name: "Piegamenti", target: "10 ripetizioni" },
@@ -186,6 +186,31 @@ function input(w, label, value) {
   return element;
 }
 function snapshotStorage(w) { return Object.fromEntries(Object.keys(w.localStorage).map((key) => [key, w.localStorage.getItem(key)])); }
+
+function completeSet(w) {
+  for (const field of w.document.querySelectorAll("[data-actual-field]")) {
+    field.value = field.dataset.actualField === "weightKg" ? "20" : "8";
+    field.dispatchEvent(new w.Event("input", { bubbles: true }));
+  }
+  click(w, "Serie completata");
+  if (w.document.querySelector(".rest-timer")) click(w, "Salta recupero");
+}
+
+function controlWorkoutClock(w) {
+  let now = Date.now();
+  let nextId = 0;
+  const intervals = new Map();
+  w.Date.now = () => now;
+  w.setInterval = (callback) => { intervals.set(++nextId, callback); return nextId; };
+  w.clearInterval = (id) => intervals.delete(id);
+  return {
+    intervals,
+    advance(milliseconds, tick = true) {
+      now += milliseconds;
+      if (tick) for (const callback of [...intervals.values()]) callback();
+    },
+  };
+}
 
 test("password sign-in opens the private app in place without storing the password", async (t) => {
   const { w, state, app } = await mount(t, { signedIn: false });
@@ -665,6 +690,8 @@ test("validated JSON import, structural editing and export are available through
   file.dispatchEvent(new w.Event("change"));
   await until(() => Boolean(w.document.querySelector(".plan-editor")));
   assert.equal(w.workoutLibrary.getDraft().definition.title, definition.title);
+  assert.equal(w.workoutLibrary.getDraft().definition.sessions[0].exercises[0].measurementMode, "reps");
+  assert.equal(w.workoutLibrary.getDraft().definition.sessions[0].exercises[0].usesWeight, true);
   click(w, "Aggiungi riscaldamento");
   click(w, "Aggiungi giornata");
   assert.equal(w.workoutLibrary.getDraft().definition.warmup.length, 2);
@@ -674,11 +701,21 @@ test("validated JSON import, structural editing and export are available through
   assert.equal(w.workoutLibrary.getDraft().definition.warmup[0].id, second.id);
   assert.equal(w.workoutLibrary.getDraft().definition.warmup[1].id, first.id);
   let downloaded = null;
-  w.URL.createObjectURL = () => "blob:demo";
+  let exported;
+  w.URL.createObjectURL = (blob) => { exported = blob; return "blob:demo"; };
   w.URL.revokeObjectURL = () => {};
   w.HTMLAnchorElement.prototype.click = function () { downloaded = this.download; };
   click(w, "Esporta JSON");
   assert.equal(downloaded, "scheda-allenamento.json");
+  const reader = new w.FileReader();
+  const content = new Promise((resolve, reject) => {
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+  });
+  reader.readAsText(exported);
+  const exportedPlan = JSON.parse(await content);
+  assert.equal(exportedPlan.sessions[0].exercises[0].measurementMode, "reps");
+  assert.equal(exportedPlan.sessions[0].exercises[0].usesWeight, true);
 });
 
 test("an invalid JSON import shows errors without overwriting an existing personal plan", async (t) => {
@@ -730,8 +767,8 @@ test("personal completions queue full result snapshots offline and synchronize i
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
   navigate(w, "workout");
   click(w, "Riscaldamento completato");
-  click(w, "Serie completata");
-  click(w, "Serie completata");
+  completeSet(w);
+  completeSet(w);
   click(w, "Salta");
   const pending = w.pendingAttendance(alice);
   assert.equal(pending.length, 1);
@@ -914,7 +951,10 @@ test("Progress separates local completion and pending results from monthly synch
   await w.workoutSocial.refresh();
   Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
   navigate(w, "workout");
-  for (const label of ["Riscaldamento completato", "Serie completata", "Serie completata", "Salta"]) click(w, label);
+  click(w, "Riscaldamento completato");
+  completeSet(w);
+  completeSet(w);
+  click(w, "Salta");
   navigate(w, "profile");
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.equal(app.querySelector(".personal-progress [role=progressbar]").getAttribute("aria-valuenow"), "100");
@@ -1297,19 +1337,21 @@ test("per-set actuals persist through navigation and correction, then snapshot a
   navigate(w,"workout");
   assert.equal(app.querySelector('[data-actual-field="weightKg"]').value,"20");
   click(w,"Serie completata");
+  click(w,"Salta recupero");
   click(w,"Indietro");
   assert.equal(app.querySelector('[data-actual-field="reps"]').value,"8");
   input(w,"Peso (kg)","22");
   click(w,"Serie completata");
-  const mode = app.querySelector('[aria-label="Misura effettiva"]');
-  mode.value = "seconds";
-  mode.dispatchEvent(new w.Event("change"));
-  input(w,"Durata (secondi)","30");
+  click(w,"Salta recupero");
+  assert.equal(app.querySelector('[aria-label="Misura effettiva"]'), null);
+  input(w,"Peso (kg)","0");
+  input(w,"Ripetizioni","6");
   click(w,"Serie completata");
+  click(w,"Salta recupero");
   click(w,"Salta");
   const receipt = w.pendingAttendance(alice)[0];
   assert.deepEqual(JSON.parse(JSON.stringify(receipt.workout.measurements)),
-    {"squat:0":{weightKg:22,reps:8},"squat:1":{seconds:30}});
+    {"squat:0":{weightKg:22,reps:8},"squat:1":{weightKg:0,reps:6}});
   assert.equal(receipt.workout.amrapExtraReps,null);
   navigate(w,"profile");
   navigate(w,"workout");
@@ -1322,22 +1364,30 @@ test("per-set actuals persist through navigation and correction, then snapshot a
   assert.equal(app.querySelector('[data-actual-field="reps"]').value,"");
 });
 
-test("invalid actual input blocks completion while blanks and explicit zero remain distinct", async (t) => {
+test("invalid and blank actual inputs disable completion while explicit zero is valid", async (t) => {
   const {w,app} = await mount(t,{plans:new Map([[alice,record(alice,"Piano")]])});
   Object.defineProperty(w.navigator,"onLine",{value:false,configurable:true});
   navigate(w,"workout");
   click(w,"Riscaldamento completato");
+  const complete = app.querySelector("[data-complete-set]");
+  assert.equal(complete.disabled, true);
   input(w,"Peso (kg)","-1");
+  input(w,"Ripetizioni","8");
+  assert.equal(complete.disabled, true);
   click(w,"Serie completata");
   assert.equal(w.getProgress("strength").steps["squat:0"],undefined);
-  assert.match(app.querySelector("[data-measurement-error]").textContent,/Controlla/);
+  input(w,"Peso (kg)","0");
+  input(w,"Ripetizioni","0");
+  assert.equal(complete.disabled, false);
+  click(w,"Serie completata");
+  click(w,"Salta recupero");
   input(w,"Peso (kg)","0");
   input(w,"Ripetizioni","0");
   click(w,"Serie completata");
-  click(w,"Serie completata");
+  click(w,"Salta recupero");
   click(w,"Salta");
   assert.deepEqual(JSON.parse(JSON.stringify(w.pendingAttendance(alice)[0].workout.measurements)),
-    {"squat:0":{weightKg:0,reps:0}});
+    {"squat:0":{weightKg:0,reps:0},"squat:1":{weightKg:0,reps:0}});
 });
 
 test("previous set values are reference-only and AMRAP extra reps survive navigation and completion", async (t) => {
@@ -1408,4 +1458,250 @@ test("late performance responses cannot expose the previous account's measuremen
   await new Promise((resolve) => setTimeout(resolve,10));
   assert.doesNotMatch(app.textContent,/Privato Alice|100 kg/);
   assert.match(app.textContent,/Nessuna misurazione sincronizzata/);
+});
+
+test("exercise tracking choices persist in editor drafts and publication fixes the training fields", async (t) => {
+  const original = record(alice, "Configurazione");
+  const plans = new Map([[alice, original]]);
+  const first = await mount(t, { plans });
+  click(first.w, "Modifica piano");
+  const mode = input(first.w, "Tracciamento", "seconds");
+  mode.dispatchEvent(new first.w.Event("change"));
+  const weight = [...first.app.querySelectorAll("label")].find((label) => label.firstChild.textContent === "Prevede un peso").querySelector("input");
+  weight.checked = false;
+  weight.dispatchEvent(new first.w.Event("change"));
+  assert.equal(first.w.workoutLibrary.getDraft().definition.sessions[0].exercises[0].measurementMode, "seconds");
+  assert.equal(first.w.workoutLibrary.getDraft().definition.sessions[0].exercises[0].usesWeight, false);
+  assert.equal(first.w.workoutLibrary.snapshot().plan.sessions[0].exercises[0].measurementMode, "reps");
+
+  const { w, app } = await mount(t, { plans, storage: snapshotStorage(first.w) });
+  click(w, "Riprendi modifica");
+  const restoredMode = [...app.querySelectorAll("label")].find((label) => label.firstChild.textContent === "Tracciamento").querySelector("select");
+  assert.equal(restoredMode.value, "seconds");
+  assert.equal(app.querySelector(".tracking-weight input").checked, false);
+  app.querySelector(".plan-editor").dispatchEvent(new w.Event("submit", { cancelable: true }));
+  await until(() => w.workoutLibrary.snapshot().record.revision === 2);
+  assert.match(app.textContent, /Tracciamento: durata in secondi/);
+  assert.doesNotMatch(app.textContent, /e peso \(kg\)/);
+  Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  assert.equal(app.querySelector('[aria-label="Misura effettiva"]'), null);
+  assert.equal(app.querySelector('[data-actual-field="reps"]'), null);
+  assert.equal(app.querySelector('[data-actual-field="weightKg"]'), null);
+  assert.equal(app.querySelector("[data-complete-set]").disabled, true);
+  input(w, "Durata (secondi)", "30");
+  assert.equal(app.querySelector("[data-complete-set]").disabled, false);
+  click(w, "Serie completata");
+  click(w, "Salta recupero");
+  input(w, "Durata (secondi)", "25");
+  click(w, "Serie completata");
+  click(w, "Salta recupero");
+  click(w, "Salta");
+  assert.deepEqual(JSON.parse(JSON.stringify(w.pendingAttendance(alice)[0].workout.measurements)),
+    { "squat:0": { seconds: 30 }, "squat:1": { seconds: 25 } });
+});
+
+test("completion requires valid persisted configured values and excludes hidden stale metrics", async (t) => {
+  const original = record(alice, "Misure");
+  Object.assign(original.definition.sessions[0].exercises[0], { measurementMode: "seconds", usesWeight: false, rest: "" });
+  const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
+  w.updateSetResult("strength", "squat:0", { mode: "reps", weightKg: "200", reps: "99" });
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  const complete = app.querySelector("[data-complete-set]");
+  for (const value of ["", "-1", "1.5", "86401"]) {
+    input(w, "Durata (secondi)", value);
+    assert.equal(complete.disabled, true, `Invalid seconds should disable completion: ${value}`);
+  }
+  complete.dispatchEvent(new w.Event("click"));
+  assert.equal(w.getProgress("strength").steps["squat:0"], undefined);
+  assert.match(app.querySelector("[data-measurement-error]").textContent, /Controlla/);
+  input(w, "Durata (secondi)", "");
+
+  const setItem = w.Storage.prototype.setItem;
+  w.Storage.prototype.setItem = function (key, value) {
+    if (key.startsWith("workout.progress")) throw new Error("Spazio esaurito");
+    return setItem.call(this, key, value);
+  };
+  input(w, "Durata (secondi)", "30");
+  assert.equal(complete.disabled, true);
+  assert.match(app.querySelector("[data-measurement-error]").textContent, /Risultato non salvato.*Spazio esaurito/);
+  assert.equal(w.getProgress("strength").results["squat:0"].seconds, "");
+  w.Storage.prototype.setItem = setItem;
+  input(w, "Durata (secondi)", "30");
+  assert.equal(complete.disabled, false);
+  click(w, "Serie completata");
+  assert.equal(app.querySelector("[data-complete-set]").disabled, true);
+  input(w, "Durata (secondi)", "0");
+  click(w, "Serie completata");
+  click(w, "Salta");
+  assert.deepEqual(JSON.parse(JSON.stringify(w.pendingAttendance(alice)[0].workout.measurements)),
+    { "squat:0": { seconds: 30 }, "squat:1": { seconds: 0 } });
+});
+
+test("weighted reps require both fields and retain the existing numeric limits", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Limiti")]]) });
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  const complete = app.querySelector("[data-complete-set]");
+  input(w, "Ripetizioni", "8");
+  assert.equal(complete.disabled, true);
+  for (const weight of ["", "-1", "2001", "0.001"]) {
+    input(w, "Peso (kg)", weight);
+    assert.equal(complete.disabled, true, `Invalid weight: ${weight}`);
+  }
+  input(w, "Peso (kg)", "12.25");
+  assert.equal(complete.disabled, false);
+  for (const reps of ["", "-1", "0.5", "100001"]) {
+    input(w, "Ripetizioni", reps);
+    assert.equal(complete.disabled, true, `Invalid reps: ${reps}`);
+  }
+  input(w, "Ripetizioni", "100000");
+  input(w, "Peso (kg)", "2000");
+  assert.equal(complete.disabled, false);
+});
+
+test("rest replaces the exercise until expiry, preserves pause/resume, and cleans up on navigation", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Recupero")]]) });
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  input(w, "Peso (kg)", "20");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  assert.ok(app.querySelector(".rest-timer"));
+  assert.equal(app.querySelector(".focus-card"), null);
+  assert.equal(app.querySelector(".workout-actions"), null);
+  assert.equal(app.querySelector("[data-complete-set]"), null);
+  assert.equal(clock.intervals.size, 1);
+  clock.advance(10000);
+  assert.equal(app.querySelector(".timer-value").textContent, "00:50");
+  click(w, "Pausa");
+  clock.advance(20000);
+  assert.equal(w.getProgress("strength").restTimer.remainingMilliseconds, 50000);
+  assert.equal(clock.intervals.size, 0);
+  navigate(w, "profile");
+  navigate(w, "workout");
+  assert.equal(app.querySelector(".timer-value").textContent, "00:50");
+  click(w, "Riprendi");
+  assert.equal(clock.intervals.size, 1);
+  clock.advance(50000);
+  assert.equal(clock.intervals.size, 0);
+  assert.equal(w.getProgress("strength").restTimer, null);
+  assert.equal(app.querySelector(".rest-timer"), null);
+  assert.match(app.querySelector(".focus-kicker").textContent, /serie 2 di 3/);
+  assert.equal(app.querySelector("[data-complete-set]").disabled, true);
+  input(w, "Peso (kg)", "20");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  navigate(w, "plan");
+  assert.equal(clock.intervals.size, 0);
+  clock.advance(61000);
+  navigate(w, "workout");
+  assert.equal(app.querySelector(".rest-timer"), null);
+  assert.equal(w.getProgress("strength").restTimer, null);
+  assert.match(app.querySelector(".focus-kicker").textContent, /serie 3 di 3/);
+});
+
+test("rest persists across reload, expires on visibility return, and quick navigation clears it", async (t) => {
+  const original = record(alice, "Ripresa");
+  const plans = new Map([[alice, original]]);
+  const first = await mount(t, { plans });
+  navigate(first.w, "workout");
+  click(first.w, "Riscaldamento completato");
+  input(first.w, "Peso (kg)", "20");
+  input(first.w, "Ripetizioni", "8");
+  click(first.w, "Serie completata");
+  const { w, app } = await mount(t, { plans, storage: snapshotStorage(first.w) });
+  assert.ok(app.querySelector(".rest-timer"));
+  w.updateRestTimer("strength", { durationSeconds: 60, remainingMilliseconds: 60000, deadline: Date.now() - 1 });
+  Object.defineProperty(w.document, "hidden", { value: false, configurable: true });
+  w.document.dispatchEvent(new w.Event("visibilitychange"));
+  assert.equal(app.querySelector(".rest-timer"), null);
+  assert.match(app.querySelector(".focus-kicker").textContent, /serie 2 di 3/);
+  input(w, "Peso (kg)", "20");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  assert.ok(app.querySelector(".rest-timer"));
+  const jump = app.querySelector('[aria-label="Vai a un esercizio"]');
+  jump.value = "squat:0";
+  jump.dispatchEvent(new w.Event("change"));
+  assert.equal(w.getProgress("strength").restTimer, null);
+  assert.equal(app.querySelector(".rest-timer"), null);
+});
+
+test("zero/no rest advance immediately and the final outstanding set never starts recovery", async (t) => {
+  for (const rest of ["", "0 secondi", "60 secondi"]) {
+    const original = record(alice, `Recupero ${rest}`);
+    Object.assign(original.definition.sessions[0].exercises[0], { rest, sets: 2, optionalSets: 0, usesWeight: false });
+    const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+    const clock = controlWorkoutClock(w);
+    navigate(w, "workout");
+    click(w, "Riscaldamento completato");
+    input(w, "Ripetizioni", "8");
+    click(w, "Serie completata");
+    if (rest === "60 secondi") {
+      assert.ok(app.querySelector(".rest-timer"));
+      click(w, "Salta recupero");
+    }
+    assert.equal(app.querySelector(".rest-timer"), null);
+    assert.match(app.querySelector(".focus-kicker").textContent, /serie 2 di 2/);
+    input(w, "Ripetizioni", "8");
+    click(w, "Serie completata");
+    assert.equal(app.querySelector(".rest-timer"), null);
+    assert.equal(clock.intervals.size, 0);
+    assert.ok(app.querySelector(".completion-card"));
+  }
+});
+
+test("an already-expired rest timer is cleared during reload without showing a finished timer", async (t) => {
+  const original = record(alice, "Recupero scaduto");
+  const plans = new Map([[alice, original]]);
+  const first = await mount(t, { plans });
+  navigate(first.w, "workout");
+  click(first.w, "Riscaldamento completato");
+  input(first.w, "Peso (kg)", "20");
+  input(first.w, "Ripetizioni", "8");
+  click(first.w, "Serie completata");
+  first.w.updateRestTimer("strength", { durationSeconds: 60, remainingMilliseconds: 60000, deadline: Date.now() - 1 });
+  const { w, app } = await mount(t, { plans, storage: snapshotStorage(first.w) });
+  assert.equal(app.querySelector(".rest-timer"), null);
+  assert.equal(w.getProgress("strength").restTimer, null);
+  assert.match(app.querySelector(".focus-kicker").textContent, /serie 2 di 3/);
+});
+
+test("sign-out stops rest callbacks without losing the owner's persisted recovery", async (t) => {
+  const original = record(alice, "Recupero privato");
+  const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  input(w, "Peso (kg)", "20");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  const saved = w.localStorage.getItem(`workout.progress:${alice}:${original.id}`);
+  assert.equal(clock.intervals.size, 1);
+  await w.workoutSocial.signOut();
+  assert.equal(clock.intervals.size, 0);
+  assert.equal(app.querySelector(".rest-timer"), null);
+  clock.advance(61000);
+  assert.equal(w.localStorage.getItem(`workout.progress:${alice}:${original.id}`), saved);
+});
+
+test("rest skip reveals the next exercise and completing an optional final set finishes directly", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Serie opzionale")]]) });
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  completeSet(w);
+  assert.equal(w.getProgress("strength").restTimer, null);
+  assert.match(app.querySelector(".focus-kicker").textContent, /serie 2 di 3/);
+  completeSet(w);
+  assert.match(app.querySelector(".focus-kicker").textContent, /opzionale/);
+  completeSet(w);
+  assert.ok(app.querySelector(".completion-card"));
+  assert.equal(clock.intervals.size, 0);
+  assert.equal(w.getProgress("strength").restTimer, null);
 });
