@@ -134,17 +134,22 @@
       },
       from: (table) => {
         let updates;
+        const filters = {};
         const read = () => {
           if (!signedIn) throw new Error("Accedi all'anteprima.");
           if (table === "friend_members") {
             if (updates) { database.name = updates.display_name; persist(); }
             return ok(member());
           }
-          if (table === "workout_plan_versions") return ok(database.plans.at(-1) || null);
+          if (table === "workout_plan_versions") {
+            return ok(database.plans.filter((plan) =>
+              Object.entries(filters).every(([field, value]) => plan[field] === value)).at(-1) || null);
+          }
           throw new Error(`Unsupported preview table: ${table}`);
         };
         const chain = {
-          select: () => chain, eq: () => chain, order: () => chain, limit: () => chain,
+          select: () => chain, order: () => chain, limit: () => chain,
+          eq: (field, value) => { filters[field] = value; return chain; },
           update: (value) => { updates = value; return chain; },
           single: async () => read(), maybeSingle: async () => read(),
         };

@@ -94,10 +94,18 @@ window.workoutLibrary = (() => {
       const record = await window.workoutSocial.fetchPersonalPlan(userId);
       if (revision !== currentRevision || request !== loadRequest) return;
       if (record) validateRecord(record, userId);
-      if (record && state.record && record.revision < state.record.revision) {
-        throw new Error("Risposta del server precedente alla versione attiva. Riprova l'aggiornamento.");
+      let deletedActive = false;
+      if (state.record && (!record || record.revision < state.record.revision)) {
+        const activeRecord = state.record;
+        const existing = await window.workoutSocial.fetchPersonalPlan(userId, activeRecord.id);
+        if (revision !== currentRevision || request !== loadRequest || state.record !== activeRecord) return;
+        if (existing) {
+          validateRecord(existing, userId);
+          throw new Error("Risposta del server precedente alla versione attiva. Riprova l'aggiornamento.");
+        }
+        deletedActive = true;
       }
-      if (record && state.record && record.id !== state.record.id
+      if (!deletedActive && record && state.record && record.id !== state.record.id
         && state.record.definition.sessions.some((day) => {
           const summary = getSessionSummary(state.record.definition, day);
           return summary.handled > 0 && !summary.complete;
@@ -109,6 +117,11 @@ window.workoutLibrary = (() => {
       activate(record);
       if (record) localStorage.setItem(cacheKey(userId), JSON.stringify(record));
       else localStorage.removeItem(cacheKey(userId));
+      if (deletedActive) {
+        state.notice = record
+          ? "La scheda attiva è stata eliminata dal server. È stata caricata l'ultima scheda disponibile."
+          : "La scheda attiva è stata eliminata dal server. Crea o importa una nuova scheda.";
+      }
     } catch (error) {
       if (revision === currentRevision && request === loadRequest) report(error, "Caricamento scheda personale non riuscito.");
     } finally {

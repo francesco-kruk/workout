@@ -58,6 +58,10 @@ test("local preview injects a demo adapter without changing the production entry
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   assert.equal(w.workoutLibrary.snapshot().plan.title, "Piano locale modificato");
+  const previewUserId = w.workoutSocial.snapshot().user.id;
+  const previewPlans = JSON.parse(w.localStorage.getItem("workout.preview.database")).plans;
+  assert.equal((await w.workoutSocial.fetchPersonalPlan(previewUserId, previewPlans[0].id)).id, previewPlans[0].id);
+  assert.equal(await w.workoutSocial.fetchPersonalPlan(previewUserId, "missing-version"), null);
   assert.equal(JSON.parse(w.localStorage.getItem("workout.preview.database")).plans.at(-1).definition.title, "Piano locale modificato");
   click("Nuovo piano");
   assert.equal(app.querySelectorAll(".creation-paths > section").length, 3);

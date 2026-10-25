@@ -420,10 +420,11 @@ window.workoutSocial = (() => {
     if (!client || !state.member || userId !== state.user?.id) throw new Error("È richiesto l'accesso al gruppo.");
   }
 
-  async function fetchPersonalPlan(userId) {
+  async function fetchPersonalPlan(userId, versionId = null) {
     requireMember(userId);
-    return check(await client.from("workout_plan_versions").select("*").eq("user_id", userId)
-      .order("revision", { ascending: false }).limit(1).maybeSingle());
+    let query = client.from("workout_plan_versions").select("*").eq("user_id", userId);
+    if (versionId !== null) query = query.eq("id", versionId);
+    return check(await query.order("revision", { ascending: false }).limit(1).maybeSingle());
   }
 
   async function savePersonalPlan(userId, draft) {
