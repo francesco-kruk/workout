@@ -471,7 +471,7 @@ test("unsupported, blocked, or failed audio stays explicit without stopping rest
     clock.advance(60000);
     assert.equal(w.getProgress("strength").restTimer, null);
     assert.ok(app.querySelector("[data-complete-set]"));
-    assert.match(app.querySelector("[data-audio-status]").textContent, /Suono del recupero non disponibile/);
+    assert.match(app.querySelector("[data-audio-status]").textContent, /Suono dei timer non disponibile/);
   }
 });
 
@@ -2474,4 +2474,294 @@ test("rest skip reveals the next exercise and completing an optional final set f
   assert.ok(app.querySelector(".completion-card"));
   assert.equal(clock.intervals.size, 0);
   assert.equal(w.getProgress("strength").restTimer, null);
+});
+
+function timedRecord(target = "15-25 secondi") {
+  const original = record(alice, "Esercizi a tempo");
+  Object.assign(original.definition.sessions[0].exercises[0], {
+    measurementMode: "seconds", usesWeight: false, target,
+  });
+  return original;
+}
+
+test("exercise timer parses only unambiguous bounded time targets and restores legacy state", async (t) => {
+  const { w } = await mount(t);
+  for (const [target, expected] of [
+    ["15 secondi", 15], ["15-25 secondi", 25], ["20\u201325 secondi", 25],
+    ["30 secondi di lavoro", 30], ["2 minuti", 120], ["1-2 min", 120],
+    ["10 seconds", 10], ["5 sec", 5], ["86400 s", 86400],
+    ["Durata libera", null], ["1 blocco", null], ["8 ripetizioni", null],
+    ["10 ripetizioni, poi 30 secondi", null], ["5 secondi per lato", null],
+    ["0 secondi", null], ["25-15 secondi", null], ["1.5 min", null],
+    ["86401 secondi", null], ["1441 minuti", null],
+  ]) assert.equal(w.parseExerciseTargetSeconds(target), expected, target);
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  w.updateExerciseTimer("strength", { stepKey: "squat:0", durationSeconds: 25, remainingMilliseconds: 25000, deadline: null });
+  assert.equal(w.getProgress("strength").exerciseTimer.stepKey, "squat:0");
+  w.updateSetResult("strength", "squat:0", { seconds: "12" });
+  assert.equal(w.getProgress("strength").exerciseTimer.durationSeconds, 25);
+  assert.equal(w.normalizeExerciseTimer({ ...w.getProgress("strength").exerciseTimer, runId: "wrong" }, w.getProgress("strength").runId), null);
+  assert.throws(() => w.updateExerciseTimer("strength", { stepKey: "squat:0", durationSeconds: 0, remainingMilliseconds: 0, deadline: null }));
+});
+
+test("exercise timer starts manually, beeps exactly once and never enters results or advances", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, timedRecord()]]) });
+  const audio = fakeAudio(w);
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  assert.equal(app.querySelector(".exercise-timer"), null);
+  click(w, "Riscaldamento completato");
+  assert.equal(app.querySelector(".exercise-timer input").value, "25");
+  assert.equal(clock.intervals.size, 0);
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  click(w, "Avvia timer");
+  await Promise.resolve();
+  assert.equal(audio.contexts, 1);
+  assert.equal(app.querySelector(".exercise-timer input").disabled, true);
+  clock.advance(24000);
+  assert.equal(app.querySelector(".timer-value").textContent, "00:01");
+  clock.advance(1000);
+  assert.equal(audio.beeps, 1);
+  assert.equal(clock.intervals.size, 0);
+  assert.match(app.querySelector(".exercise-timer").textContent, /Tempo terminato/);
+  assert.equal(app.querySelector("[data-actual-field]").value, "");
+  assert.equal(app.querySelector("[data-complete-set]").disabled, true);
+  assert.equal(w.getProgress("strength").steps["squat:0"], undefined);
+  assert.equal(w.getProgress("strength").restTimer, null);
+  Object.defineProperty(w.document, "hidden", { value: false, configurable: true });
+  w.document.dispatchEvent(new w.Event("visibilitychange"));
+  clock.advance(25000);
+  assert.equal(audio.beeps, 1);
+  input(w, "Durata (secondi)", "23");
+  click(w, "Serie completata");
+  assert.equal(w.getProgress("strength").results["squat:0"].seconds, "23");
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  assert.ok(app.querySelector(".rest-timer"));
+});
+
+test("exercise timer validates editable seconds, pauses, resumes and resets without a tone", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, timedRecord("Durata libera")]]) });
+  const audio = fakeAudio(w);
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  assert.equal(app.querySelector(".exercise-timer input").value, "");
+  for (const value of ["", "0", "-1", "1.5", "86401"]) {
+    input(w, "Timer: durata (secondi)", value);
+    const start = [...app.querySelectorAll("button")].find((button) => button.textContent === "Avvia timer");
+    assert.equal(start.disabled, true, value);
+    assert.match(app.querySelector(".exercise-timer [role=alert]").textContent, /1 a 86400/);
+    assert.equal(clock.intervals.size, 0);
+  }
+  input(w, "Timer: durata (secondi)", "86400");
+  assert.equal(app.querySelector(".exercise-timer button").disabled, false);
+  input(w, "Timer: durata (secondi)", "30");
+  click(w, "Avvia timer");
+  await Promise.resolve();
+  clock.advance(10250);
+  click(w, "Pausa");
+  assert.equal(w.getProgress("strength").exerciseTimer.remainingMilliseconds, 19750);
+  assert.equal(clock.intervals.size, 0);
+  clock.advance(60000);
+  assert.equal(app.querySelector(".timer-value").textContent, "00:20");
+  navigate(w, "profile");
+  navigate(w, "workout");
+  assert.equal(app.querySelector(".timer-value").textContent, "00:20");
+  assert.equal(clock.intervals.size, 0);
+  click(w, "Riprendi");
+  clock.advance(1000);
+  assert.equal(app.querySelector(".timer-value").textContent, "00:19");
+  click(w, "Azzera timer");
+  assert.equal(clock.intervals.size, 0);
+  assert.equal(app.querySelector(".timer-value").textContent, "00:30");
+  assert.equal(app.querySelector(".exercise-timer input").disabled, false);
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  assert.equal(audio.beeps, 0);
+});
+
+test("exercise timer catches up on visibility return and respects mute and audio failures", async (t) => {
+  for (const mode of ["normal", "muted", "unsupported", "resume", "playback"]) {
+    const { w, app } = await mount(t, { plans: new Map([[alice, timedRecord("15 secondi")]]) });
+    const audio = mode === "unsupported" ? null : fakeAudio(w, { rejectResume: mode === "resume", rejectPlayback: mode === "playback" });
+    const clock = controlWorkoutClock(w);
+    if (mode === "muted") w.workoutAudio.setMuted(true);
+    navigate(w, "workout");
+    click(w, "Riscaldamento completato");
+    click(w, "Avvia timer");
+    await Promise.resolve();
+    await Promise.resolve();
+    clock.advance(15000, false);
+    Object.defineProperty(w.document, "hidden", { value: false, configurable: true });
+    w.document.dispatchEvent(new w.Event("visibilitychange"));
+    assert.equal(w.getProgress("strength").exerciseTimer.remainingMilliseconds, 0);
+    assert.equal(clock.intervals.size, 0);
+    if (audio) assert.equal(audio.beeps, mode === "normal" ? 1 : 0, mode);
+    if (["unsupported", "resume", "playback"].includes(mode)) {
+      assert.match(app.querySelector("[data-audio-status]").textContent, /Suono dei timer non disponibile/);
+    }
+    input(w, "Durata (secondi)", "15");
+    assert.equal(app.querySelector("[data-complete-set]").disabled, false);
+  }
+});
+
+test("exercise timer restores running and paused deadlines and never plays a stale reload alert", async (t) => {
+  const plans = new Map([[alice, timedRecord()]]);
+  const first = await mount(t, { plans });
+  const firstClock = controlWorkoutClock(first.w);
+  navigate(first.w, "workout");
+  click(first.w, "Riscaldamento completato");
+  click(first.w, "Avvia timer");
+  firstClock.advance(5000);
+  const second = await mount(t, {
+    plans, storage: snapshotStorage(first.w),
+    beforeBoot: (w) => { w.Date.now = () => first.w.Date.now(); },
+  });
+  assert.ok(second.w.getProgress("strength").exerciseTimer.deadline);
+  assert.equal(second.app.querySelector(".exercise-timer input").value, "25");
+  assert.equal(second.app.querySelector(".timer-value").textContent, "00:20");
+  click(second.w, "Pausa");
+  const paused = second.w.getProgress("strength").exerciseTimer.remainingMilliseconds;
+  assert.equal(paused, 20000);
+  const third = await mount(t, { plans, storage: snapshotStorage(second.w) });
+  assert.equal(third.w.getProgress("strength").exerciseTimer.deadline, null);
+  assert.equal(third.w.getProgress("strength").exerciseTimer.remainingMilliseconds, paused);
+  assert.match(third.app.querySelector(".exercise-timer").textContent, /Riprendi/);
+  third.w.updateExerciseTimer("strength", { ...third.w.getProgress("strength").exerciseTimer, deadline: third.w.Date.now() - 1 });
+  let audio;
+  const expired = await mount(t, {
+    plans, storage: snapshotStorage(third.w), beforeBoot: (w) => { audio = fakeAudio(w); },
+  });
+  assert.equal(audio.beeps, 0);
+  assert.equal(audio.contexts, 0);
+  assert.match(expired.app.querySelector(".exercise-timer").textContent, /Tempo terminato/);
+});
+
+test("exercise timer navigation preserves tab state but clears on set, day and account transitions", async (t) => {
+  const original = timedRecord();
+  const { w, app, state } = await mount(t, { plans: new Map([[alice, original], [bob, record(bob, "Altro account")]]) });
+  const audio = fakeAudio(w);
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  click(w, "Avvia timer");
+  await Promise.resolve();
+  navigate(w, "profile");
+  assert.equal(clock.intervals.size, 0);
+  clock.advance(30000);
+  navigate(w, "workout");
+  assert.match(app.querySelector(".exercise-timer").textContent, /Tempo terminato/);
+  assert.equal(audio.beeps, 0);
+  click(w, "Azzera timer");
+  click(w, "Avvia timer");
+  input(w, "Durata (secondi)", "8");
+  click(w, "Serie completata");
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  assert.ok(app.querySelector(".rest-timer"));
+  click(w, "Salta recupero");
+  click(w, "Avvia timer");
+  click(w, "Indietro");
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  assert.equal(clock.intervals.size, 0);
+  click(w, "Avvia timer");
+  const jump = app.querySelector('[aria-label="Vai a un esercizio"]');
+  jump.value = "squat:0";
+  jump.dispatchEvent(new w.Event("change"));
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  click(w, "Avvia timer");
+  const day = app.querySelector('[aria-label="Vai a un giorno"]');
+  day.value = "circuit";
+  day.dispatchEvent(new w.Event("change"));
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  assert.equal(app.querySelector(".exercise-timer"), null);
+  assert.equal(clock.intervals.size, 0);
+  const returnDay = app.querySelector('[aria-label="Vai a un giorno"]');
+  returnDay.value = "strength";
+  returnDay.dispatchEvent(new w.Event("change"));
+  click(w, "Avvia timer");
+  const saved = w.localStorage.getItem(`workout.progress:${alice}:${original.id}`);
+  await w.workoutSocial.signOut();
+  assert.equal(clock.intervals.size, 0);
+  clock.advance(30000);
+  assert.equal(w.localStorage.getItem(`workout.progress:${alice}:${original.id}`), saved);
+  state.id = bob;
+  state.callback("SIGNED_IN", { user: { id: bob } });
+  await until(() => w.workoutLibrary.snapshot().userId === bob);
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  assert.equal(audio.beeps, 0);
+});
+
+test("exercise timer clears for optional skips and progress resets", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, timedRecord()]]) });
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  completeSet(w);
+  completeSet(w);
+  assert.match(app.querySelector(".focus-kicker").textContent, /opzionale/);
+  click(w, "Avvia timer");
+  click(w, "Salta");
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  assert.equal(clock.intervals.size, 0);
+  assert.ok(app.querySelector(".completion-card"));
+  w.clearProgress("strength");
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+});
+
+test("exercise timer stays scoped to its plan version when an updated plan is activated", async (t) => {
+  const original = timedRecord();
+  const { w, app, state } = await mount(t, { plans: new Map([[alice, original]]) });
+  const clock = controlWorkoutClock(w);
+  const audio = fakeAudio(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  click(w, "Avvia timer");
+  await Promise.resolve();
+  const latest = { ...timedRecord("10 secondi"), revision: 2 };
+  state.plans.set(alice, latest);
+  await w.workoutLibrary.load();
+  assert.equal(w.workoutLibrary.snapshot().record.id, original.id);
+  assert.equal(clock.intervals.size, 1);
+  navigate(w, "plan");
+  click(w, "Usa piano aggiornato");
+  assert.equal(clock.intervals.size, 0);
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  clock.advance(30000);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  assert.equal(app.querySelector(".exercise-timer input").value, "10");
+  assert.equal(audio.beeps, 0);
+});
+
+test("exercise timer discards mismatched set and run state", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, timedRecord()]]) });
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  w.updateExerciseTimer("strength", { stepKey: "squat:1", durationSeconds: 25, remainingMilliseconds: 25000, deadline: null });
+  navigate(w, "plan");
+  navigate(w, "workout");
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  click(w, "Avvia timer");
+  const store = w.readProgressStore();
+  store.sessions.strength.runId = "new-run";
+  w.writeProgressStore(store);
+  navigate(w, "plan");
+  navigate(w, "workout");
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
+  assert.equal(app.querySelector(".exercise-timer input").disabled, false);
+});
+
+test("exercise timer reports storage failures without pretending it started", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, timedRecord()]]) });
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  const setItem = w.Storage.prototype.setItem;
+  w.Storage.prototype.setItem = function (key, value) {
+    if (key.startsWith("workout.progress")) throw new Error("Spazio esaurito");
+    return setItem.call(this, key, value);
+  };
+  click(w, "Avvia timer");
+  assert.match(app.querySelector(".exercise-timer [role=alert]").textContent, /non salvato.*Spazio esaurito/);
+  assert.equal(clock.intervals.size, 0);
+  assert.equal(w.getProgress("strength").exerciseTimer, null);
 });

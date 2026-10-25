@@ -792,7 +792,8 @@ body:not(.auth-entry) main {
   background: var(--surface-soft);
 }
 
-.rest-timer {
+.rest-timer,
+.exercise-timer {
   display: grid;
   justify-items: center;
   margin-top: 14px;
@@ -800,6 +801,10 @@ body:not(.auth-entry) main {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+}
+
+.exercise-timer {
+  gap: 10px;
 }
 
 .rest-timer .focus-kicker {
