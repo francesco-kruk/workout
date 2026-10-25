@@ -159,6 +159,30 @@ If access or initial plan loading fails, an explicit recovery screen allows
 retrying instead of opening an example or treating the failure as a missing plan.
 An already-loaded, approved account can keep training during an outage.
 
+### Recover after deleting a plan version
+
+Plan versions are intended to be immutable; avoid deleting rows directly from
+`workout_plan_versions`. If the active version is deleted, the app confirms its
+absence online, then automatically loads the latest remaining server plan. If
+none remains, it opens the create/import screen. A notice explains the switch,
+even when the deleted plan had a workout in progress. A failed server check keeps
+the cached plan with an explicit error instead of treating the failure as deletion.
+Local drafts, version-scoped progress, and pending completions are not deleted.
+
+On an older deployment that repeatedly reports **Risposta del server precedente
+alla versione attiva**, open the site's browser developer tools and remove only
+the `workout.personalPlan:<your-Auth-user-UUID>` entry from **Local Storage**, then
+reload online. Do not clear all site data: that also removes drafts, progress,
+and unsynced completions. Removing the cache does not restore deleted server data.
+
+A draft based on a deleted version is preserved but cannot be saved against that
+missing base. Export its CSV before discarding the draft, then import it again
+against the recovered plan (or the empty create screen) and save explicitly.
+Deleted database rows and any dependent data removed with them require a database
+backup to restore; this recovery only reconciles the active browser plan.
+Pending completions referencing deleted versions remain local and may be rejected
+by server validation.
+
 ### Profile and account settings
 
 **Suono dei timer** plays one short beep when an active rest or exercise timer finishes.

@@ -96,6 +96,7 @@ async function mount(t, {
     },
     from: (table) => {
       let userId = state.id;
+      let versionId = null;
       let updates;
       const chain = {
         select: () => chain, order: () => chain, limit: () => chain,
@@ -104,14 +105,19 @@ async function mount(t, {
           state.names.set(userId, updates.display_name);
           return { data: { user_id: userId, display_name: updates.display_name }, error: null };
         },
-        eq: (_field, value) => { userId = value; return chain; },
+        eq: (field, value) => {
+          if (field === "id") versionId = value;
+          else if (field === "user_id") userId = value;
+          return chain;
+        },
         maybeSingle: async () => {
           if (table === "friend_members") {
             if (state.beforeMembership) await state.beforeMembership(userId);
             return { data: state.approved ? { user_id: userId, display_name: state.names.get(userId) || "Amico" } : null, error: state.membershipError };
           }
-          if (state.beforePlan) await state.beforePlan(userId);
-          return { data: plans.get(userId) || null, error: state.planError };
+          if (state.beforePlan) await state.beforePlan(userId, versionId);
+          const plan = versionId === null ? plans.get(userId) : state.records.get(versionId);
+          return { data: plan?.user_id === userId ? plan : null, error: state.planError };
         },
       };
       return chain;
@@ -1361,6 +1367,167 @@ test("a cached personal plan remains usable during a backend outage, with an exp
   navigate(w, "workout");
   click(w, "Riscaldamento completato");
   assert.match(app.textContent, /Squat/);
+});
+
+test("deleting the newest server version recovers from a newer cache and allows saving again", async (t) => {
+  const previous = record(alice, "Scheda rimasta");
+  const deleted = { ...record(alice, "Scheda eliminata"), revision: 2 };
+  const { w, app } = await mount(t, {
+    plans: new Map([[alice, previous]]),
+    storage: { [`workout.personalPlan:${alice}`]: JSON.stringify(deleted) },
+  });
+  assert.equal(w.workoutLibrary.snapshot().record.id, previous.id);
+  assert.equal(w.workoutLibrary.snapshot().error, "");
+  assert.match(w.document.querySelector("#account-status").textContent, /eliminata dal server/);
+  assert.match(app.textContent, /Scheda rimasta/);
+  assert.equal(JSON.parse(w.localStorage.getItem(`workout.personalPlan:${alice}`)).id, previous.id);
+  const draft = w.workoutLibrary.writeDraft({ ...structuredClone(definition), title: "Salvata dopo recupero" });
+  assert.equal(draft.baseVersionId, previous.id);
+  await w.workoutLibrary.save(draft);
+  assert.equal(w.workoutLibrary.snapshot().plan.title, "Salvata dopo recupero");
+  assert.equal(w.workoutLibrary.snapshot().record.revision, 2);
+});
+
+test("deleting every server version clears only the plan cache and opens creation", async (t) => {
+  const deleted = record(alice, "Scheda eliminata");
+  const { w, app } = await mount(t, {
+    storage: { [`workout.personalPlan:${alice}`]: JSON.stringify(deleted) },
+  });
+  assert.equal(w.workoutLibrary.snapshot().record, null);
+  assert.equal(w.workoutLibrary.snapshot().error, "");
+  assert.equal(w.localStorage.getItem(`workout.personalPlan:${alice}`), null);
+  assert.match(w.document.querySelector("#account-status").textContent, /Crea o importa/);
+  assert.ok([...app.querySelectorAll("button")].some((button) => button.textContent === "Crea scheda"));
+  const draft = w.workoutLibrary.writeDraft(structuredClone(definition));
+  assert.equal(draft.baseVersionId, null);
+  await w.workoutLibrary.save(draft);
+  assert.equal(w.workoutLibrary.snapshot().record.revision, 1);
+});
+
+test("deleted active workouts switch automatically without deleting drafts, progress or pending completions", async (t) => {
+  const previous = record(alice, "Precedente");
+  const deleted = { ...record(alice, "Attiva"), revision: 2 };
+  const { w, state } = await mount(t, { plans: new Map([[alice, deleted]]) });
+  Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  completeSet(w);
+  completeSet(w);
+  click(w, "Salta");
+  w.workoutLibrary.writeDraft({ ...structuredClone(definition), title: "Bozza da preservare" });
+  const pending = JSON.stringify(w.pendingAttendance(alice));
+  assert.equal(w.pendingAttendance(alice).length, 1);
+  w.setStepStatus("circuit", "warmup:warm", "completed");
+  const before = snapshotStorage(w);
+  state.plans.set(alice, previous);
+  state.records.delete(deleted.id);
+  state.records.set(previous.id, previous);
+  Object.defineProperty(w.navigator, "onLine", { value: true, configurable: true });
+  await w.workoutLibrary.load();
+  assert.equal(w.workoutLibrary.snapshot().record.id, previous.id);
+  assert.equal(w.workoutLibrary.snapshot().availableRecord, null);
+  assert.equal(JSON.stringify(w.pendingAttendance(alice)), pending);
+  for (const [key, value] of Object.entries(before)) {
+    if (key !== `workout.personalPlan:${alice}`) assert.equal(w.localStorage.getItem(key), value, key);
+  }
+  const draft = w.workoutLibrary.getDraft();
+  assert.equal(draft.baseVersionId, deleted.id);
+  await assert.rejects(w.workoutLibrary.save(draft), /Plan changed on another device/);
+  assert.equal(w.workoutLibrary.getDraft().versionId, draft.versionId);
+});
+
+test("deletion recovery clears a previously offered update even when no plans remain", async (t) => {
+  const original = record(alice, "Attiva");
+  const { w, state } = await mount(t, { plans: new Map([[alice, original]]) });
+  w.setStepStatus("strength", "warmup:warm", "completed");
+  const latest = { ...record(alice, "Aggiornata"), revision: 2 };
+  state.plans.set(alice, latest);
+  state.records.set(latest.id, latest);
+  await w.workoutLibrary.load();
+  assert.equal(w.workoutLibrary.snapshot().availableRecord.id, latest.id);
+  state.plans.clear();
+  state.records.clear();
+  await w.workoutLibrary.load();
+  assert.equal(w.workoutLibrary.snapshot().record, null);
+  assert.equal(w.workoutLibrary.snapshot().availableRecord, null);
+  w.workoutLibrary.useLatest();
+  assert.equal(w.workoutLibrary.snapshot().record, null);
+});
+
+test("older or missing latest responses cannot replace an active version that still exists", async (t) => {
+  const previous = record(alice, "Precedente");
+  const active = { ...record(alice, "Attiva"), revision: 2 };
+  const { w, state } = await mount(t, { plans: new Map([[alice, active]]) });
+  for (const response of [previous, null]) {
+    if (response) state.plans.set(alice, response);
+    else state.plans.delete(alice);
+    await w.workoutLibrary.load();
+    assert.equal(w.workoutLibrary.snapshot().record.id, active.id);
+    assert.match(w.workoutLibrary.snapshot().error, /Risposta del server precedente/);
+    assert.equal(JSON.parse(w.localStorage.getItem(`workout.personalPlan:${alice}`)).id, active.id);
+  }
+});
+
+test("a failed deletion check retains the cached plan with an explicit error", async (t) => {
+  const previous = record(alice, "Precedente");
+  const active = { ...record(alice, "Attiva"), revision: 2 };
+  const { w, state } = await mount(t, { plans: new Map([[alice, active]]) });
+  state.plans.set(alice, previous);
+  state.records.delete(active.id);
+  state.beforePlan = async (_userId, versionId) => {
+    if (versionId) state.planError = new Error("Verification unavailable");
+  };
+  await w.workoutLibrary.load();
+  assert.equal(w.workoutLibrary.snapshot().record.id, active.id);
+  assert.match(w.workoutLibrary.snapshot().error, /Verification unavailable/);
+  assert.equal(JSON.parse(w.localStorage.getItem(`workout.personalPlan:${alice}`)).id, active.id);
+});
+
+test("a deletion check is scoped to the current member even for another member's version ID", async (t) => {
+  const other = record(bob, "Privata Bob");
+  const { w } = await mount(t, { plans: new Map([[bob, other]]) });
+  assert.equal(await w.workoutSocial.fetchPersonalPlan(alice, other.id), null);
+  await assert.rejects(w.workoutSocial.fetchPersonalPlan(bob, other.id), /account|Account|accesso|Accesso/);
+});
+
+test("deletion verification cannot override a save, a newer load, or an account change", async (t) => {
+  for (const action of ["save", "load", "account"]) {
+    const previous = record(alice, "Precedente");
+    const active = { ...record(alice, "Attiva"), revision: 2 };
+    const other = record(bob, "Bob");
+    const { w, state } = await mount(t, { plans: new Map([[alice, active], [bob, other]]) });
+    state.plans.set(alice, previous);
+    state.records.delete(active.id);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let waiting = false;
+    state.beforePlan = async (_userId, versionId) => {
+      if (versionId === active.id) { waiting = true; await gate; }
+    };
+    const loading = w.workoutLibrary.load();
+    await until(() => waiting);
+    let expected;
+    if (action === "save") {
+      state.plans.set(alice, active);
+      const draft = w.workoutLibrary.writeDraft(structuredClone(definition));
+      expected = await w.workoutLibrary.save(draft);
+    } else if (action === "load") {
+      expected = { ...record(alice, "Nuova"), revision: 3 };
+      state.plans.set(alice, expected);
+      await w.workoutLibrary.load();
+    } else {
+      expected = other;
+      state.id = bob;
+      state.callback("SIGNED_IN", { user: { id: bob } });
+      await until(() => w.workoutLibrary.snapshot().record?.id === other.id);
+    }
+    release();
+    await loading;
+    assert.equal(w.workoutLibrary.snapshot().record.id, expected.id, action);
+    assert.equal(w.workoutLibrary.snapshot().error, "", action);
+    assert.equal(w.workoutLibrary.snapshot().loading, false, action);
+    assert.equal(JSON.parse(w.localStorage.getItem(`workout.personalPlan:${expected.user_id}`)).id, expected.id);
+  }
 });
 
 test("a newer remote version never replaces an in-progress local workout without an explicit choice", async (t) => {
