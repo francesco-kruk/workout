@@ -1,6 +1,7 @@
 function renderWorkout(container, plan, onSessionAdvanced) {
   let timerId = null;
   let timerCleanup = null;
+  let refreshExerciseTimer = null;
   let active = true;
   let manualNotice = "";
   function updateAudioStatus() {
@@ -11,8 +12,10 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
   }
   function prepareAudio() {
-    const rest = getProgress(getCurrentSessionId(plan)).restTimer;
-    if (rest && rest.deadline !== null) void window.workoutAudio.prepare();
+    const progress = getProgress(getCurrentSessionId(plan));
+    if ([progress.restTimer, progress.exerciseTimer].some((timer) => timer && timer.deadline !== null)) {
+      void window.workoutAudio.prepare();
+    }
   }
   container.addEventListener("click", prepareAudio);
   window.addEventListener("workout-audio-change", updateAudioStatus);
@@ -33,6 +36,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
   window.addEventListener("workout-manual-will-complete", stopTimer);
   function resumeRestView() {
     if (!active || document.hidden) return;
+    if (refreshExerciseTimer) refreshExerciseTimer(true);
     const sessionId = getCurrentSessionId(plan);
     const rest = getProgress(sessionId).restTimer;
     if (rest && ((rest.deadline !== null && rest.deadline <= Date.now())
@@ -63,6 +67,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
 
   function renderCurrent() {
     stopTimer();
+    refreshExerciseTimer = null;
     container.replaceChildren();
 
     const sessionId = getCurrentSessionId(plan);
@@ -113,6 +118,11 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
 
     const step = summary.steps[summary.currentIndex];
+    if (summary.progress.exerciseTimer && (step.type !== "set"
+      || getExerciseTracking(step.exercise).mode !== "seconds"
+      || summary.progress.exerciseTimer.stepKey !== step.key)) {
+      updateExerciseTimer(sessionId, null);
+    }
     const stepMeta = textEl(
       "p",
       `Step ${summary.currentIndex + 1} di ${summary.steps.length}`,
@@ -254,6 +264,9 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     const sessionId = getCurrentSessionId(plan);
     const stored = getProgress(sessionId);
     const { mode, usesWeight } = getExerciseTracking(step.exercise);
+    if (mode === "seconds" && !hasRecordedWorkout(stored.runId)) {
+      card.appendChild(renderExerciseTimer(sessionId, step));
+    }
     const values = { ...stored.results[step.key], mode };
     const fields = document.createElement("fieldset");
     fields.className = "actual-results";
@@ -401,6 +414,121 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       if (error) error.textContent = failure.message;
       return false;
     }
+  }
+
+  function renderExerciseTimer(sessionId, step) {
+    const panel = document.createElement("section");
+    panel.className = "exercise-timer";
+    panel.setAttribute("aria-label", "Timer esercizio");
+    panel.appendChild(textEl("h4", "Timer esercizio", "focus-kicker"));
+    let current = getProgress(sessionId).exerciseTimer;
+    const durationLabel = textEl("label", "Timer: durata (secondi)");
+    const duration = document.createElement("input");
+    duration.type = "number";
+    duration.min = "1";
+    duration.max = "86400";
+    duration.step = "1";
+    duration.required = true;
+    duration.inputMode = "numeric";
+    duration.value = current?.durationSeconds ?? parseExerciseTargetSeconds(step.exercise.target) ?? "";
+    durationLabel.appendChild(duration);
+    const display = textEl("strong", "", "timer-value");
+    const status = textEl("span", "", "timer-status");
+    status.setAttribute("role", "status");
+    const error = textEl("p", "", "social-status error");
+    error.id = `exercise-timer-error-${step.exercise.id}`;
+    error.setAttribute("role", "alert");
+    duration.setAttribute("aria-describedby", error.id);
+    const toggle = createButton("Avvia timer", "btn btn-primary");
+    const reset = createButton("Azzera timer", "btn btn-secondary");
+    const controls = document.createElement("div");
+    controls.className = "timer-controls";
+    controls.append(toggle, reset);
+    panel.append(durationLabel, display, status, controls, error);
+
+    function validDuration() {
+      return duration.checkValidity() && Number.isInteger(duration.valueAsNumber);
+    }
+
+    function save(timer) {
+      current = updateExerciseTimer(sessionId, timer);
+    }
+
+    function guard(action) {
+      try {
+        action();
+      } catch (failure) {
+        stopTimer();
+        console.error("Timer esercizio non disponibile.", failure);
+        error.textContent = `Timer esercizio non salvato. ${failure.message}`;
+        toggle.disabled = true;
+      }
+    }
+
+    function refresh(notify = false) {
+      if (!active) return;
+      current = getProgress(sessionId).exerciseTimer;
+      if (current && current.deadline !== null && current.deadline <= Date.now()) {
+        save({ ...current, deadline: null, remainingMilliseconds: 0 });
+        stopTimer();
+        if (notify) window.workoutAudio.play();
+      }
+      const running = current?.deadline != null;
+      const finished = current?.remainingMilliseconds === 0;
+      const remaining = current
+        ? current.deadline === null ? current.remainingMilliseconds : Math.max(0, current.deadline - Date.now())
+        : validDuration() ? duration.valueAsNumber * 1000 : 0;
+      display.textContent = formatTime(Math.ceil(remaining / 1000));
+      status.textContent = finished ? "Tempo terminato" : running ? "Timer in corso" : current ? "Timer in pausa" : "Timer pronto";
+      duration.disabled = Boolean(current);
+      toggle.textContent = finished ? "Tempo terminato" : running ? "Pausa" : current ? "Riprendi" : "Avvia timer";
+      toggle.disabled = finished || (!current && !validDuration());
+      reset.disabled = !current;
+    }
+
+    function startTicker() {
+      if (timerId === null) timerId = window.setInterval(() => guard(() => refresh(true)), 250);
+    }
+
+    duration.addEventListener("input", () => {
+      error.textContent = validDuration() ? "" : "Inserisci una durata intera da 1 a 86400 secondi.";
+      duration.setAttribute("aria-invalid", String(!validDuration()));
+      guard(() => refresh());
+    });
+    toggle.addEventListener("click", () => guard(() => {
+      if (current?.deadline != null) {
+        if (current.deadline <= Date.now()) {
+          refresh(true);
+          return;
+        }
+        save({ ...current, deadline: null, remainingMilliseconds: Math.max(0, current.deadline - Date.now()) });
+        stopTimer();
+      } else {
+        if (!current && !validDuration()) return;
+        const milliseconds = current?.remainingMilliseconds ?? duration.valueAsNumber * 1000;
+        save({
+          stepKey: step.key,
+          durationSeconds: current?.durationSeconds ?? duration.valueAsNumber,
+          remainingMilliseconds: milliseconds,
+          deadline: Date.now() + milliseconds,
+        });
+        void window.workoutAudio.prepare();
+        startTicker();
+      }
+      refresh();
+    }));
+    reset.addEventListener("click", () => guard(() => {
+      stopTimer();
+      save(null);
+      error.textContent = "";
+      refresh();
+    }));
+    refreshExerciseTimer = (notify) => guard(() => refresh(notify));
+    guard(() => {
+      refresh();
+      if (current?.deadline != null) startTicker();
+    });
+    return panel;
   }
 
   function renderRestTimer(sessionId, initialTimer, summary) {

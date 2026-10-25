@@ -129,8 +129,8 @@ function renderProfile(container) {
   container.appendChild(account);
   const sound = document.createElement("section");
   sound.className = "social-panel";
-  sound.appendChild(textEl("h3", "Suono del recupero"));
-  const muteLabel = textEl("label", "Disattiva il suono del recupero");
+  sound.appendChild(textEl("h3", "Suono dei timer"));
+  const muteLabel = textEl("label", "Disattiva il suono dei timer");
   muteLabel.className = "tracking-weight";
   const mute = document.createElement("input");
   mute.type = "checkbox";
@@ -139,7 +139,7 @@ function renderProfile(container) {
   const soundStatus = textEl("p", "", "social-status");
   soundStatus.setAttribute("role", "status");
   sound.append(muteLabel,
-    textEl("p", "Un breve segnale alla fine del recupero. Preferenza salvata solo su questo browser. In background o con lo schermo bloccato il browser potrebbe sospendere l'audio.", "view-description"),
+    textEl("p", "Un breve segnale alla fine del recupero e del timer esercizio. Preferenza salvata solo su questo browser. In background o con lo schermo bloccato il browser potrebbe sospendere l'audio.", "view-description"),
     soundStatus);
   container.appendChild(sound);
 

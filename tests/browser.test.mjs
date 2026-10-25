@@ -120,6 +120,8 @@ test("Profile sound preference is available in local mode without an account", a
   w.workoutLibrary.start(plan);
   const cleanup = w.renderProfile(container);
   const mute = container.querySelector("[data-rest-sound-muted]");
+  assert.match(container.textContent, /Suono dei timer/);
+  assert.match(container.textContent, /recupero e del timer esercizio/);
   assert.equal(mute.disabled, false);
   assert.equal(mute.checked, false);
   mute.click();

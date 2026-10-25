@@ -27,6 +27,9 @@ function getCurrentSessionId(plan) {
 
 function setCurrentSessionId(sessionId) {
   const store = readProgressStore();
+  for (const [id, progress] of Object.entries(store.sessions)) {
+    if (id !== sessionId) progress.exerciseTimer = null;
+  }
   store.currentSessionId = sessionId;
   writeProgressStore(store);
 }
@@ -40,7 +43,7 @@ function applyManualWorkoutProgress(plan, intent) {
   if (intent.replacesPlanned) {
     const nextId = nextSessionId(plan, intent.sessionId);
     store.sessions[intent.sessionId] = {
-      ...getStoredSession(store, intent.sessionId), restTimer: null,
+      ...getStoredSession(store, intent.sessionId), restTimer: null, exerciseTimer: null,
       amrap: getProgress(intent.sessionId).amrap,
     };
     store.sessions[nextId] = {
@@ -51,6 +54,7 @@ function applyManualWorkoutProgress(plan, intent) {
   } else {
     const progress = getStoredSession(store, intent.sessionId);
     progress.restTimer = null;
+    progress.exerciseTimer = null;
     progress.amrap = getProgress(intent.sessionId).amrap;
     store.sessions[intent.sessionId] = progress;
   }
@@ -126,6 +130,7 @@ function getProgress(sessionId) {
     results: isObject(stored?.results) ? { ...stored.results } : {},
     amrap: normalizeAmrap(stored?.amrap),
     restTimer: normalizeRestTimer(stored?.restTimer),
+    exerciseTimer: normalizeExerciseTimer(stored?.exerciseTimer, stored?.runId),
   };
 }
 
@@ -134,6 +139,7 @@ function setStepStatus(sessionId, key, status) {
   const progress = getStoredSession(store, sessionId);
 
   progress.steps[key] = status;
+  progress.exerciseTimer = null;
   progress.history = progress.history.filter((item) => item !== key);
   progress.history.push(key);
   store.sessions[sessionId] = progress;
@@ -161,6 +167,7 @@ function completeStepsBefore(plan, sessionId, targetKey) {
     ...precedingKeys,
   ];
   progress.restTimer = null;
+  progress.exerciseTimer = null;
   store.sessions[sessionId] = progress;
   writeProgressStore(store);
   return true;
@@ -173,6 +180,7 @@ function undoLastStep(sessionId) {
   if (!key) return null;
 
   delete progress.steps[key];
+  progress.exerciseTimer = null;
   if (key === `${sessionId}:amrap`) {
     progress.amrap.completed = false;
   }
@@ -273,6 +281,36 @@ function updateRestTimer(sessionId, timer) {
 
 function clearRestTimer(sessionId) {
   updateRestTimer(sessionId, null);
+}
+
+function updateExerciseTimer(sessionId, timer) {
+  const store = readProgressStore();
+  const progress = getStoredSession(store, sessionId);
+  const normalized = timer === null ? null : normalizeExerciseTimer({ ...timer, runId: progress.runId }, progress.runId);
+  if (timer !== null && !normalized) throw new Error("Timer esercizio non valido.");
+  progress.exerciseTimer = normalized;
+  store.sessions[sessionId] = progress;
+  writeProgressStore(store);
+  return normalized;
+}
+
+function parseExerciseTargetSeconds(target) {
+  const match = String(target).trim().match(/^(\d+)(?:\s*[-\u2013]\s*(\d+))?\s*(s|sec|secondi?|seconds?|min|minuti?|minutes?)(?:\s+di lavoro)?$/i);
+  if (!match) return null;
+  const lower = Number(match[1]);
+  const upper = Number(match[2] ?? match[1]);
+  const seconds = upper * (/^min/i.test(match[3]) ? 60 : 1);
+  return lower > 0 && upper >= lower && Number.isInteger(seconds) && seconds <= 86400 ? seconds : null;
+}
+
+function normalizeExerciseTimer(timer, runId) {
+  if (!isObject(timer) || typeof timer.stepKey !== "string" || !timer.stepKey
+    || typeof runId !== "string" || timer.runId !== runId
+    || !Number.isInteger(timer.durationSeconds) || timer.durationSeconds < 1 || timer.durationSeconds > 86400
+    || !Number.isFinite(timer.remainingMilliseconds) || timer.remainingMilliseconds < 0
+    || timer.remainingMilliseconds > timer.durationSeconds * 1000
+    || (timer.deadline !== null && !Number.isFinite(timer.deadline))) return null;
+  return { ...normalizeRestTimer(timer), stepKey: timer.stepKey, runId };
 }
 
 function clearProgress(sessionId) {
@@ -376,6 +414,7 @@ function getStoredSession(store, sessionId) {
     results: isObject(stored?.results) ? { ...stored.results } : {},
     amrap: normalizeAmrap(stored?.amrap),
     restTimer: normalizeRestTimer(stored?.restTimer),
+    exerciseTimer: normalizeExerciseTimer(stored?.exerciseTimer, stored?.runId),
   };
 }
 

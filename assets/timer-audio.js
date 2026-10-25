@@ -5,8 +5,8 @@ window.workoutAudio = (() => {
   let error = "";
 
   function report(failure) {
-    console.error("Suono del recupero non disponibile.", failure);
-    error = `Suono del recupero non disponibile. ${failure.message}`;
+    console.error("Suono dei timer non disponibile.", failure);
+    error = `Suono dei timer non disponibile. ${failure.message}`;
     window.dispatchEvent(new Event("workout-audio-change"));
   }
 

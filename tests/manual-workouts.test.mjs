@@ -258,6 +258,30 @@ test("replacing an active AMRAP stops its timer before resetting the next run", 
   cleanup();
 });
 
+test("manual replacement and extra submissions clear the exercise timer without changing actual results", async (t) => {
+  for (const choice of ["extra", "replace"]) {
+    const timed = structuredClone(planTemplate);
+    Object.assign(timed.sessions[0].exercises[0], { measurementMode: "seconds", target: "20 secondi" });
+    const { w, app, render, form, submit } = await setup(t, timed);
+    w.setStepStatus("strength", "warmup:warm", "completed");
+    w.updateSetResult("strength", "squat:0", { seconds: "12" });
+    const intervals = new Map();
+    w.setInterval = (callback) => { intervals.set(1, callback); return 1; };
+    w.clearInterval = (id) => intervals.delete(id);
+    const cleanup = render();
+    app.querySelector(".exercise-timer button").click();
+    assert.equal(intervals.size, 1);
+    assert.ok(w.getProgress("strength").exerciseTimer);
+    submit(form(choice));
+    await until(() => /Allenamento inviato/.test(app.textContent));
+    assert.equal(intervals.size, 0);
+    assert.equal(w.getProgress("strength").exerciseTimer, null);
+    assert.equal(w.getProgress("strength").results["squat:0"].seconds, "12");
+    assert.equal(w.getCurrentSessionId(timed), choice === "replace" ? "circuit" : "strength");
+    cleanup();
+  }
+});
+
 test("review UI renders shared text safely, votes once and refreshes ranking", async (t) => {
   const { w, app, state, row } = await setup(t);
   const pending = row({ p_id: randomUUID(), p_description: "<img src=x onerror=alert(1)>", p_replaces_planned: false });
