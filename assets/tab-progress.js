@@ -48,7 +48,7 @@ function renderProgress(container) {
 function renderWorkoutHistory(container, state) {
   container.replaceChildren(
     textEl("h3", "Storico privato"),
-    textEl("p", "Solo tu puoi leggere questi dettagli: attività, pesi, ripetizioni, durate e risultati AMRAP. I valori non registrati non sono stimati.", "view-description")
+    textEl("p", "Solo tu puoi leggere questi dettagli: attività, pesi, ripetizioni, durate, superserie, AMRAP e minuti EMOM. I valori non registrati non sono stimati.", "view-description")
   );
   if (!state.userId) {
     container.appendChild(textEl("p", "Lo storico sincronizzato richiede un piano personale e l'accesso al gruppo.", "view-description"));
@@ -82,9 +82,27 @@ function renderWorkoutHistory(container, state) {
     const list = document.createElement("ul");
     const historicalPlan = { warmup: result.warmup, sessions: [result.session] };
     for (const step of getWorkoutSteps(historicalPlan, result.session)) {
+      if (step.block && ["amrap", "emom"].includes(step.type)) {
+        const value = result.block_results?.[step.block.id];
+        if (step.type === "amrap") list.appendChild(textEl("li",
+          `${step.block.label}: ${value ? formatAmrapResult(value.rounds, value.extraReps) : "Non registrato"}`));
+        else {
+          const item = textEl("li", `${step.block.label} · EMOM`);
+          const minutes = document.createElement("ul");
+          for (let i = 0; i < step.block.rounds * step.block.minutes.length; i++) {
+            const minute = value?.minutes?.[i];
+            const measurements = step.block.minutes[i % step.block.minutes.length].exercises.map((exercise) =>
+              `${exercise.name}: ${formatActualResult(minute?.measurements?.[exercise.id])}`).join(" · ");
+            minutes.appendChild(textEl("li", `Minuto ${i + 1}: ${minute?.status === "completed" ? "Fatto" : minute?.status === "missed" ? "Mancato" : "Non registrato"} · ${measurements}`));
+          }
+          item.appendChild(minutes);
+          list.appendChild(item);
+        }
+        continue;
+      }
       const label = step.type === "warmup" ? step.item.name
         : step.type === "amrap" ? `AMRAP: ${formatAmrapResult(result.amrap_rounds, result.amrap_extra_reps)}`
-          : `${step.exercise.name}, serie ${step.setNumber} · Obiettivo: ${step.exercise.target} · Effettivo: ${formatActualResult(result.measurements?.[step.key])}`;
+          : `${step.block ? `${step.block.label} · ` : ""}${step.exercise.name}, ${step.block?.type === "superset" ? "giro" : "serie"} ${step.setNumber} · Obiettivo: ${step.exercise.target} · Effettivo: ${formatActualResult(result.measurements?.[step.key])}`;
       list.appendChild(textEl("li", `${label}: ${result.steps[step.key] === "completed" ? "Fatto" : "Saltato"}`));
     }
 
@@ -191,6 +209,33 @@ function renderPerformance(container) {
 
   function renderSeries(series) {
     const isAmrap = series.kind === "amrap";
+    const isEmom = series.kind === "emom";
+    if (isEmom) {
+      container.appendChild(textEl("p", "EMOM: minuti completati e mancati, a programma invariato. Nessun punteggio composito; le misurazioni facoltative non sono stimate.", "view-description"));
+      if (data.results.length > 1) {
+        const [latest, previous] = data.results;
+        container.appendChild(textEl("p",
+          `Ultima volta vs precedente (${dateLabel(latest.completed_at)} / ${dateLabel(previous.completed_at)}): ${latest.rounds} / ${previous.rounds} minuti completati · variazione: ${signedDelta(latest.rounds, previous.rounds)}. Minuti mancati: ${latest.extra_reps} / ${previous.extra_reps}.`, "performance-comparison"));
+      }
+      const list = document.createElement("div");
+      for (const row of data.results) {
+        const details = document.createElement("details");
+        details.appendChild(textEl("summary", `${dateLabel(row.completed_at)} · ${row.rounds} minuti completati · ${row.extra_reps} mancati`));
+        for (const minute of row.sets) {
+          details.appendChild(textEl("p", `Minuto ${minute.minute + 1}: ${minute.status === "completed" ? "Fatto" : "Mancato"}`));
+          for (const [name, value] of Object.entries(minute.measurements || {})) details.appendChild(textEl("p", `${minute.names?.[name] || name}: ${formatActualResult(value)}`, "view-description"));
+        }
+        list.appendChild(details);
+      }
+      container.append(list, textEl("p", `${data.results.length} risultati caricati di ${series.workouts}.`, "view-description"));
+      if (data.more) {
+        const more = createButton("Carica risultati precedenti", "btn btn-secondary");
+        more.disabled = loading;
+        more.addEventListener("click", () => { void load(true); });
+        container.appendChild(more);
+      }
+      return;
+    }
     container.appendChild(textEl("p", isAmrap
       ? `Miglior risultato registrato: ${amrapLabel(series.best_amrap)}. Confronto solo a circuito e durata invariati.`
       : `Massimi registrati (indipendenti, non necessariamente nella stessa serie): ${
@@ -213,6 +258,7 @@ function renderPerformance(container) {
     metricLabel.appendChild(metricSelect);
     container.appendChild(metricLabel);
     const rows = data.results;
+    const setLabel = series.kind === "superset" ? "Giro" : "Serie";
     const latest = rows[0];
     const previous = rows[1];
     if (latest && previous) {
@@ -227,7 +273,7 @@ function renderPerformance(container) {
           const deltas = [["weightKg", "kg"], ["reps", "ripetizioni"], ["seconds", "secondi"]]
             .filter(([key]) => old?.[key] != null && set[key] != null)
             .map(([key, unit]) => `${signedDelta(set[key], old[key])} ${unit}`).join(" · ");
-          container.appendChild(textEl("p", `Serie ${set.set}: ${formatActualResult(set)} / ${formatActualResult(old)}${deltas ? ` · variazione: ${deltas}` : ""}`, "performance-comparison"));
+          container.appendChild(textEl("p", `${setLabel} ${set.set}: ${formatActualResult(set)} / ${formatActualResult(old)}${deltas ? ` · variazione: ${deltas}` : ""}`, "performance-comparison"));
         }
       }
     } else if (latest) container.appendChild(textEl("p", "Primo risultato registrato: serve un altro allenamento confrontabile per mostrare una variazione.", "view-description"));
@@ -273,7 +319,7 @@ function renderPerformance(container) {
       const tr = document.createElement("tr");
       const result = document.createElement("td");
       if (isAmrap) result.textContent = amrapLabel(row);
-      else for (const set of row.sets) result.appendChild(textEl("div", `Serie ${set.set}: ${formatActualResult(set)}`));
+      else for (const set of row.sets) result.appendChild(textEl("div", `${setLabel} ${set.set}: ${formatActualResult(set)}`));
       tr.append(textEl("td", dateLabel(row.completed_at)), result,
         textEl("td", row[metric] == null ? "Non registrato" : formatScore(row[metric])));
       body.appendChild(tr);

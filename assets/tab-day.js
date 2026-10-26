@@ -27,7 +27,37 @@ function renderDay(container, plan, sessionId = getCurrentSessionId(plan)) {
   container.appendChild(hint);
 
   if (plan.warmup.length) container.appendChild(renderDayWarmup(plan.warmup, summary.progress));
-  if (session.type === "amrap") {
+  if (session.blocks) {
+    for (const block of session.blocks) {
+      const card = renderPlanBlock(block);
+      if (["standard", "superset"].includes(block.type)) {
+        const sets = document.createElement("div");
+        sets.className = "readonly-list";
+        for (const exercise of block.exercises) {
+          const row = document.createElement("div");
+          row.className = "day-set-statuses";
+          row.appendChild(textEl("span", exercise.name));
+          const required = block.type === "superset" ? block.rounds : exercise.sets;
+          const optional = block.type === "superset" ? block.optionalRounds || 0 : exercise.optionalSets || 0;
+          for (let i = 0; i < required + optional; i++) row.appendChild(createStatusBadge(
+            `${block.type === "superset" ? "Giro " : ""}${i + 1}${i >= required ? " opz." : ""}`,
+            summary.progress.steps[`${exercise.id}:${i}`] || "pending", i >= required));
+          sets.appendChild(row);
+        }
+        card.appendChild(sets);
+      } else {
+        const value = summary.progress.blocks[block.id] || {};
+        if (block.type === "amrap") card.appendChild(textEl("p", formatAmrapResult(value.rounds || 0, value.extraReps)));
+        else {
+          const minutes = Object.values(value.minutes || {});
+          card.appendChild(textEl("p", `${minutes.filter((m) => m.status === "completed").length} minuti completati · ${minutes.filter((m) => m.status === "missed").length} mancati`));
+        }
+        card.appendChild(createStatusBadge(summary.progress.steps[`${block.id}:${block.type}`] ? "Completato" : "Da completare",
+          summary.progress.steps[`${block.id}:${block.type}`] || "pending"));
+      }
+      container.appendChild(card);
+    }
+  } else if (session.type === "amrap") {
     container.appendChild(renderDayAmrap(session, summary.progress));
   } else {
     const list = document.createElement("div");

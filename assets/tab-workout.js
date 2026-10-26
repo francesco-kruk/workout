@@ -88,7 +88,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       if (manual) container.appendChild(manual);
     }
 
-    if (session.type !== "amrap" && summary.progress.restTimer) {
+    if (summary.progress.restTimer) {
       const rest = summary.progress.restTimer;
       if (rest.remainingMilliseconds === 0 || (rest.deadline !== null && rest.deadline <= Date.now())) {
         clearRestTimer(session.id);
@@ -121,10 +121,21 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     } else if (step.type === "set") {
       container.appendChild(renderSetStep(step));
     } else {
-      container.appendChild(renderAmrapStep(step, summary.progress));
+      const timed = renderTimedBlock(step, {
+        refresh: renderCurrent,
+        complete: () => {
+          applyWorkoutProgress(plan, session.id, () => setStepStatus(session.id, step.key, "completed"));
+          renderCurrent();
+        },
+        back: () => { undoLastStep(session.id, plan); renderCurrent(); },
+        previous: appendPrevious, onActivity: refreshManualAvailability,
+      });
+      timerCleanup = timed.dispose;
+      refreshExerciseTimer = timed.refresh;
+      container.appendChild(timed.element);
     }
 
-    if (step.type !== "amrap") {
+    if (!["amrap", "emom"].includes(step.type)) {
       container.appendChild(renderStepActions(step, summary));
     }
   }
@@ -171,10 +182,17 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
     exerciseSelect.addEventListener("change", () => {
       if (!exerciseSelect.value) return;
-      applyWorkoutProgress(plan, session.id, () => {
-        completeStepsBefore(plan, session.id, exerciseSelect.value);
-      });
-      renderCurrent();
+      try {
+        applyWorkoutProgress(plan, session.id, () => {
+          completeStepsBefore(plan, session.id, exerciseSelect.value);
+        });
+        renderCurrent();
+      } catch (failure) {
+        console.error("Navigazione allenamento non riuscita.", failure);
+        const error = textEl("p", failure.message, "social-status error");
+        error.setAttribute("role", "alert");
+        controls.appendChild(error);
+      }
     });
     exerciseField.appendChild(exerciseSelect);
 
@@ -190,6 +208,11 @@ function renderWorkout(container, plan, onSessionAdvanced) {
   }
 
   function getExerciseDestinations(session) {
+    if (session.blocks) return getWorkoutSteps({ warmup: [] }, session).filter((step) =>
+      step.type !== "set" || step.setNumber === 1
+    ).map((step) => ({
+      key: step.key, label: step.type === "set" ? `${step.block.label} · ${step.exercise.name}` : step.block.label,
+    }));
     if (session.type === "amrap") {
       return [
         {
@@ -207,7 +230,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
 
   function getExerciseDestinationKey(step) {
     if (step?.type === "set") return `${step.exercise.id}:0`;
-    if (step?.type === "amrap") return step.key;
+    if (["amrap", "emom"].includes(step?.type)) return step.key;
     return "";
   }
 
@@ -237,6 +260,13 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       textEl("h3", step.exercise.name),
       textEl("p", step.exercise.target, "focus-target")
     );
+    if (step.block) {
+      const superset = step.block.type === "superset";
+      card.prepend(textEl("p", `${workoutBlockLabel(step.block)} · ${step.block.label}${superset ? ` · giro ${step.setNumber} di ${step.totalSets}` : ""}`, "focus-kicker"));
+      if (superset) card.appendChild(textEl("p", step.roundEnd
+        ? `Recupero a fine giro: ${formatRest(step.block.restSeconds)}`
+        : `Nessun recupero. Prossimo: ${step.block.exercises[step.exerciseIndex + 1].name}`, "focus-rest"));
+    }
     if (step.exercise.rest !== undefined) {
       card.appendChild(
         textEl("p", `Recupero dopo la serie: ${formatRest(step.exercise.rest)}`, "focus-rest")
@@ -335,7 +365,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         if (message) error.textContent = message;
       }
     }
-    appendPrevious(card, sessionId, step.exercise.id, step.setNumber);
+    appendPrevious(card, sessionId, step.exercise.id, step.setNumber, step.block?.id);
     return card;
   }
 
@@ -351,18 +381,20 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     ).find(Boolean) || "";
   }
 
-  function appendPrevious(card, sessionId, exerciseId = null, setNumber = null) {
+  function appendPrevious(card, sessionId, exerciseId = null, setNumber = null, blockId = null) {
     const library = window.workoutLibrary?.snapshot();
     if (!library?.record || library.plan !== plan) return;
     const ownerId = library.userId;
     const reference = textEl("p", "Ultima volta: caricamento...", "previous-result view-description");
     card.appendChild(reference);
-    window.workoutSocial.fetchPrevious(sessionId, exerciseId).then((result) => {
+    window.workoutSocial.fetchPrevious(sessionId, exerciseId, blockId).then((result) => {
       if (!active || !card.isConnected || window.workoutLibrary.snapshot().userId !== ownerId) return;
       const value = exerciseId ? result?.sets?.find((item) => item.set === setNumber) : null;
       reference.textContent = result
         ? `Ultima volta (${new Date(result.completed_at).toLocaleDateString("it-IT", { timeZone: "Europe/Rome" })}): ${
-          exerciseId ? formatActualResult(value) : formatAmrapResult(result.rounds, result.extra_reps)
+          exerciseId ? formatActualResult(value) : result.kind === "emom"
+            ? `${result.rounds} minuti completati · ${result.extra_reps} mancati`
+            : formatAmrapResult(result.rounds, result.extra_reps)
         }. Solo riferimento.`
         : "Ultima volta: nessun risultato confrontabile registrato.";
     }).catch((failure) => {
@@ -547,9 +579,10 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         step.type === "set" && step.exercise.id === lastStep.exercise.id
         && summary.progress.steps[step.key] === "completed"
       ).length;
+      const optional = lastStep.block?.type === "superset" ? lastStep.block.optionalRounds : lastStep.exercise.optionalSets;
       timer.append(
         textEl("h3", lastStep.exercise.name),
-        textEl("p", `${completedSets} di ${lastStep.totalSets} serie completate${lastStep.exercise.optionalSets ? ` (${lastStep.exercise.optionalSets} opzionali)` : ""}`, "view-description")
+        textEl("p", `${completedSets} di ${lastStep.totalSets} serie completate${optional ? ` (${optional} opzionali)` : ""}`, "view-description")
       );
     }
     const timeDisplay = textEl(
@@ -643,21 +676,30 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     if (progress.history.length > 0) {
       const back = createButton("Indietro", "btn btn-secondary");
       back.addEventListener("click", () => {
-        undoLastStep(getCurrentSessionId(plan));
+        undoLastStep(getCurrentSessionId(plan), plan);
         clearRestTimer(getCurrentSessionId(plan));
         renderCurrent();
       });
       actions.appendChild(back);
     }
 
-    if (step.optional) {
-      const skip = createButton("Salta", "btn btn-secondary");
+    if (step.optional && (step.block?.type !== "superset" || step.exerciseIndex === 0)) {
+      const skip = createButton(step.block?.type === "superset" ? "Salta giro opzionale" : "Salta", "btn btn-secondary");
       skip.addEventListener("click", () => {
         const sessionId = getCurrentSessionId(plan);
-        applyWorkoutProgress(plan, sessionId, () => {
-          setStepStatus(sessionId, step.key, "skipped");
-        });
-        renderCurrent();
+        try {
+          applyWorkoutProgress(plan, sessionId, () => {
+            const round = step.block?.type === "superset"
+              ? summary.steps.filter((item) => item.block?.id === step.block.id && item.setNumber === step.setNumber) : [step];
+            for (const item of round) setStepStatus(sessionId, item.key, "skipped");
+          });
+          renderCurrent();
+        } catch (failure) {
+          console.error("Salto del giro non riuscito.", failure);
+          const error = textEl("p", failure.message, "social-status error");
+          error.setAttribute("role", "alert");
+          actions.appendChild(error);
+        }
       });
       actions.appendChild(skip);
     }
@@ -673,251 +715,35 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
     complete.addEventListener("click", () => {
       if (step.type === "set" && !validateActualInputs()) return;
-      const sessionId = getCurrentSessionId(plan);
-      applyWorkoutProgress(plan, sessionId, () => {
-        setStepStatus(sessionId, step.key, "completed");
-      });
-      const nextSummary = getSessionSummary(plan, plan.sessions.find((day) => day.id === sessionId));
-      const nextStep = nextSummary.steps[nextSummary.currentIndex];
-      if (step.type === "set" && nextStep?.type === "set"
-        && nextStep.exercise.id === step.exercise.id) {
-        const durationSeconds = step.exercise.rest;
-        if (durationSeconds > 0) {
-          updateRestTimer(sessionId, {
-            durationSeconds,
-            remainingMilliseconds: durationSeconds * 1000,
-            deadline: Date.now() + durationSeconds * 1000,
-          });
+      try {
+        const sessionId = getCurrentSessionId(plan);
+        applyWorkoutProgress(plan, sessionId, () => {
+          setStepStatus(sessionId, step.key, "completed");
+        });
+        const nextSummary = getSessionSummary(plan, plan.sessions.find((day) => day.id === sessionId));
+        const nextStep = nextSummary.steps[nextSummary.currentIndex];
+        if (step.type === "set" && nextStep && (step.block?.type === "superset"
+          ? step.roundEnd : nextStep.type === "set" && nextStep.exercise.id === step.exercise.id)) {
+          const durationSeconds = step.block?.type === "superset" ? step.block.restSeconds : step.exercise.rest;
+          if (durationSeconds > 0) {
+            updateRestTimer(sessionId, {
+              durationSeconds,
+              remainingMilliseconds: durationSeconds * 1000,
+              deadline: Date.now() + durationSeconds * 1000,
+            });
+          }
         }
+        renderCurrent();
+      } catch (failure) {
+        console.error("Completamento serie non riuscito.", failure);
+        const error = container.querySelector("[data-measurement-error]") || textEl("p", "", "social-status error");
+        error.setAttribute("role", "alert");
+        error.textContent = failure.message;
+        if (!error.isConnected) actions.appendChild(error);
       }
-      renderCurrent();
     });
     actions.appendChild(complete);
     return actions;
-  }
-
-  function renderAmrapStep(step, progress) {
-    const session = step.session;
-    const durationSeconds = parseDurationSeconds(session.duration);
-    let remainingMilliseconds =
-      progress.amrap.remainingMilliseconds === null
-        ? durationSeconds * 1000
-        : progress.amrap.remainingMilliseconds;
-    let rounds = progress.amrap.rounds;
-    let deadline = null;
-
-    const card = document.createElement("article");
-    card.className = "focus-card amrap-focus";
-    card.append(
-      textEl("p", "Circuito AMRAP", "focus-kicker"),
-      textEl("h3", session.subtitle || session.label),
-      textEl("p", session.instructions, "focus-instructions")
-    );
-
-    const exercises = document.createElement("ol");
-    exercises.className = "amrap-focus-list";
-    for (const exercise of session.exercises) {
-      const item = document.createElement("li");
-      item.append(
-        textEl("strong", exercise.name),
-        textEl("span", exercise.target)
-      );
-      exercises.appendChild(item);
-    }
-    card.appendChild(exercises);
-
-    const timer = document.createElement("div");
-    timer.className = "amrap-timer";
-    const timeDisplay = textEl(
-      "strong",
-      formatTime(Math.ceil(remainingMilliseconds / 1000)),
-      "timer-value"
-    );
-    const timerStatus = textEl("span", "Timer in pausa", "timer-status");
-    const timerError = textEl("p", "", "social-status error");
-    timerError.setAttribute("role", "alert");
-    timer.append(timeDisplay, timerStatus, timerError);
-    card.appendChild(timer);
-
-    const roundsControl = document.createElement("div");
-    roundsControl.className = "rounds-control";
-    const roundsLabel = textEl("strong", String(rounds), "rounds-value");
-    const roundsText = textEl("span", "giri completi");
-    const decrement = createButton("−", "btn btn-icon");
-    decrement.setAttribute("aria-label", "Rimuovi un giro");
-    decrement.disabled = rounds === 0;
-    const increment = createButton("+", "btn btn-icon");
-    increment.setAttribute("aria-label", "Aggiungi un giro");
-    increment.disabled = rounds >= 100000;
-    decrement.addEventListener("click", () => {
-      rounds = Math.max(0, rounds - 1);
-      updateAmrap(session.id, { rounds });
-      refreshManualAvailability();
-      roundsLabel.textContent = String(rounds);
-      decrement.disabled = rounds === 0;
-      increment.disabled = false;
-    });
-    increment.addEventListener("click", () => {
-      rounds += 1;
-      updateAmrap(session.id, { rounds });
-      refreshManualAvailability();
-      roundsLabel.textContent = String(rounds);
-      decrement.disabled = false;
-      increment.disabled = rounds >= 100000;
-    });
-    roundsControl.append(decrement, roundsLabel, roundsText, increment);
-    card.appendChild(roundsControl);
-    const extraLabel = textEl("label", "Ripetizioni extra (facoltative)");
-    const extra = document.createElement("input");
-    extra.type = "number";
-    extra.min = "0";
-    extra.max = "100000";
-    extra.step = "1";
-    extra.inputMode = "numeric";
-    extra.value = progress.amrap.extraReps;
-    extra.dataset.actualField = "extraReps";
-    const resultError = textEl("p", "", "social-status error");
-    resultError.dataset.measurementError = "";
-    resultError.setAttribute("role", "alert");
-    extra.addEventListener("input", () => {
-      try {
-        updateAmrap(session.id, { extraReps: extra.validity.badInput ? "invalid" : extra.value });
-        refreshManualAvailability();
-        resultError.textContent = validateNumberInput(extra, "Ripetizioni extra");
-      } catch (failure) {
-        console.error("Salvataggio ripetizioni extra non riuscito.", failure);
-        resultError.textContent = `Risultato non salvato. ${failure.message}`;
-      }
-      updateTimerUi();
-    });
-    extraLabel.appendChild(extra);
-    card.append(extraLabel, textEl("p", "Totale delle ripetizioni svolte dopo l'ultimo giro completo.", "view-description"), resultError);
-    appendPrevious(card, session.id);
-
-    const controls = document.createElement("div");
-    controls.className = "timer-controls";
-    const reset = createButton("Reset", "btn btn-secondary");
-    const toggle = createButton(
-      remainingMilliseconds === 0 ? "Tempo terminato" : "Avvia timer",
-      "btn btn-primary"
-    );
-    toggle.disabled = remainingMilliseconds === 0;
-
-    function updateTimerUi() {
-      timeDisplay.textContent = formatTime(
-        Math.ceil(remainingMilliseconds / 1000)
-      );
-      toggle.textContent =
-        remainingMilliseconds === 0
-          ? "Tempo terminato"
-          : timerId === null
-            ? "Avvia timer"
-            : "Pausa";
-      toggle.disabled = remainingMilliseconds === 0;
-      complete.disabled = remainingMilliseconds !== 0 || !extra.checkValidity() || Boolean(resultError.textContent);
-      timerStatus.textContent =
-        remainingMilliseconds === 0
-          ? "Tempo terminato"
-          : timerId === null
-            ? "Timer in pausa"
-            : "Timer in corso";
-    }
-
-    toggle.addEventListener("click", () => {
-      if (timerId !== null) {
-        stopTimer();
-        updateTimerUi();
-        return;
-      }
-
-      try {
-        updateAmrap(session.id, { remainingMilliseconds });
-        refreshManualAvailability();
-        timerError.textContent = "";
-      } catch (failure) {
-        console.error("Avvio timer AMRAP non riuscito.", failure);
-        timerError.textContent = `Timer AMRAP non salvato. ${failure.message}`;
-        return;
-      }
-      deadline = Date.now() + remainingMilliseconds;
-      timerCleanup = () => {
-        if (deadline === null) return;
-        remainingMilliseconds = Math.max(0, deadline - Date.now());
-        deadline = null;
-        updateAmrap(session.id, { remainingMilliseconds });
-      };
-      timerId = window.setInterval(() => {
-        remainingMilliseconds = Math.max(0, deadline - Date.now());
-        updateAmrap(session.id, { remainingMilliseconds });
-        if (remainingMilliseconds === 0) stopTimer();
-        updateTimerUi();
-      }, 1000);
-      updateTimerUi();
-    });
-
-    reset.addEventListener("click", () => {
-      stopTimer();
-      remainingMilliseconds = durationSeconds * 1000;
-      rounds = 0;
-      updateAmrap(session.id, {
-        remainingMilliseconds: null,
-        rounds,
-        extraReps: "",
-        completed: false,
-      });
-      refreshManualAvailability();
-      roundsLabel.textContent = "0";
-      extra.value = "";
-      extra.setCustomValidity("");
-      extra.setAttribute("aria-invalid", "false");
-      resultError.textContent = "";
-      timerError.textContent = "";
-      decrement.disabled = true;
-      increment.disabled = false;
-      updateTimerUi();
-    });
-    controls.append(reset, toggle);
-    card.appendChild(controls);
-
-    const actions = document.createElement("div");
-    actions.className = "workout-actions";
-    if (progress.history.length > 0) {
-      const back = createButton("Indietro", "btn btn-secondary");
-      back.addEventListener("click", () => {
-        stopTimer();
-        undoLastStep(session.id);
-        renderCurrent();
-      });
-      actions.appendChild(back);
-    }
-    const complete = createButton("Completa AMRAP", "btn btn-primary");
-    complete.disabled = remainingMilliseconds !== 0;
-    complete.addEventListener("click", () => {
-      if (!validateActualInputs()) return;
-      applyWorkoutProgress(plan, session.id, () => {
-        updateAmrap(session.id, { completed: true });
-        setStepStatus(session.id, step.key, "completed");
-      });
-      renderCurrent();
-    });
-    actions.appendChild(complete);
-    card.appendChild(actions);
-    resultError.id = `extra-reps-error-${session.id}`;
-    extra.setAttribute("aria-describedby", resultError.id);
-    if (extra.value) resultError.textContent = validateNumberInput(extra, "Ripetizioni extra");
-    try {
-      parseAmrapCount(rounds, "Giri completi");
-      parseAmrapCount(progress.amrap.extraReps, "Ripetizioni extra", true);
-    } catch (failure) {
-      console.error("Risultato AMRAP non valido.", failure);
-      resultError.textContent = failure.message;
-    }
-    updateTimerUi();
-    if (hasRecordedWorkout(progress.runId)) {
-      extra.disabled = increment.disabled = decrement.disabled = reset.disabled = true;
-      card.appendChild(textEl("p", "Risultato di questo allenamento già salvato, in sola lettura.", "view-description"));
-    }
-    return card;
   }
 
   function renderCompletion(session, summary) {
@@ -947,7 +773,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     if (summary.progress.history.length > 0) {
       const back = createButton("Indietro", "btn btn-secondary");
       back.addEventListener("click", () => {
-        undoLastStep(session.id);
+        undoLastStep(session.id, plan);
         renderCurrent();
       });
       actions.appendChild(back);

@@ -29,6 +29,7 @@ const migrationNames = [
   "202610240006_optional_warmup",
   "202610240007_set_notes",
   "202610240008_required_rest",
+  "202610260001_workout_blocks",
 ];
 const migrations = await Promise.all(migrationNames.map((name) =>
   readFile(new URL(`../supabase/migrations/${name}.sql`, import.meta.url), "utf8")));
@@ -300,7 +301,7 @@ test("required-rest migration converts upper bounds atomically and rolls back on
   const upgrade = new PGlite();
   t.after(() => upgrade.close());
   await upgrade.exec(bootstrap);
-  for (const migration of migrations.slice(0, -1)) await upgrade.exec(migration);
+  for (const migration of migrations.slice(0, -2)) await upgrade.exec(migration);
   await upgrade.query("insert into auth.users values($1)", [alice]);
   await upgrade.query("insert into public.friend_members(user_id,display_name) values($1,'Amico')", [alice]);
   const valid = structuredClone(plan);
@@ -321,7 +322,7 @@ test("required-rest migration converts upper bounds atomically and rolls back on
   const invalidId = randomUUID();
   await upgrade.query("insert into public.workout_plan_versions(id,user_id,revision,definition) values($1,$2,1,$3),($4,$2,2,$5)",
     [validId, alice, JSON.stringify(valid), invalidId, JSON.stringify(invalid)]);
-  await assert.rejects(upgrade.exec(migrations.at(-1)), /explicit integer rest/);
+  await assert.rejects(upgrade.exec(migrations.at(-2)), /explicit integer rest/);
   await upgrade.exec("rollback");
   assert.deepEqual((await upgrade.query("select definition from public.workout_plan_versions where id=$1", [validId])).rows[0].definition, valid);
   assert.deepEqual((await upgrade.query("select definition from public.workout_plan_versions where id=$1", [invalidId])).rows[0].definition, invalid);
@@ -329,10 +330,10 @@ test("required-rest migration converts upper bounds atomically and rolls back on
   // AMRAP previously permitted arbitrary optional rest text.
   unsupported.sessions[1].exercises[0].rest = "un minuto";
   await upgrade.query("update public.workout_plan_versions set definition=$1 where id=$2", [JSON.stringify(unsupported), invalidId]);
-  await assert.rejects(upgrade.exec(migrations.at(-1)), /Cannot convert rest.*un minuto/);
+  await assert.rejects(upgrade.exec(migrations.at(-2)), /Cannot convert rest.*un minuto/);
   await upgrade.exec("rollback");
   await upgrade.query("update public.workout_plan_versions set definition=$1 where id=$2", [JSON.stringify(valid), invalidId]);
-  await upgrade.exec(migrations.at(-1));
+  await upgrade.exec(migrations.at(-2));
   const definition = (await upgrade.query("select definition from public.workout_plan_versions where id=$1", [validId])).rows[0].definition;
   assert.deepEqual(definition.sessions[0].exercises.map((e) => e.rest), [60, 60, 0, 0, 0, 0, 0, 0, 0, 0]);
   assert.equal(definition.sessions[1].duration, valid.sessions[1].duration);
