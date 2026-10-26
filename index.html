@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#000000" />
   <title>Il mio allenamento</title>
-  <link rel="stylesheet" href="assets/styles.css?v=14" />
+  <link rel="stylesheet" href="assets/styles.css?v=15" />
 </head>
 <body class="auth-entry">
   <header class="app-header">
@@ -24,18 +24,30 @@
   <nav class="app-nav" aria-label="Sezioni dell'allenamento" hidden>
     <button type="button" data-view="plan">
       <span aria-hidden="true">▦</span>
-      Piano
+      <span class="nav-label">Piano</span>
+    </button>
+    <button type="button" data-view="progress">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M3 3v18h18M6 16l5-5 4 3 6-8M16 6h5v5" />
+      </svg>
+      <span class="nav-label">Progresso</span>
     </button>
     <button type="button" data-view="workout">
       <span aria-hidden="true">▶</span>
-      Allenamento
+      <span class="nav-label">Allenamento</span>
+    </button>
+    <button type="button" data-view="leaderboard">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M8 21H3V11h5m0 10V4h8v17m0-13h5v13H8" />
+      </svg>
+      <span class="nav-label">Classifica</span>
     </button>
     <button type="button" data-view="profile">
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="12" cy="7" r="4" />
         <path d="M4 22v-3a8 8 0 0 1 16 0v3" />
       </svg>
-      Profilo
+      <span class="nav-label">Profilo</span>
     </button>
   </nav>
 

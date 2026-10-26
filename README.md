@@ -3,7 +3,7 @@
 Italian, mobile-friendly workout tracking, hosted as a static site on GitHub Pages.
 Workout progress and timers are saved in the browser. Supabase optionally stores
 each member's private workout plan and completed-workout history, and connects one
-friends group through **Profilo**. Everyone uses the same website; no forks or
+friends group through **Classifica**. Everyone uses the same website; no forks or
 application servers are required.
 
 The interface keeps a gritty, high-contrast training theme: pure-black backgrounds
@@ -29,7 +29,7 @@ Open `http://127.0.0.1:8765/`. This uses the real app UI with an approved demo
 account and a private-plan example. Create/edit/save plans, resume drafts, and
 try training/history without signing in to Supabase. Data persists only in this
 browser on this local origin. Ranking numbers are illustrative and do not
-recalculate when training or approving demo manual workouts. Profilo includes a
+recalculate when training or approving demo manual workouts. Classifica includes a
 sample manual request to approve/reject; your own manual submissions stay pending
 because the preview does not impersonate other voters. No production data or credentials are used; the
 preview adapter is injected only by this localhost server, not by GitHub Pages.
@@ -144,9 +144,16 @@ is not supported: there is no service worker.
    email address and password, or choose **Crea un account** on the first visit.
    Both actions stay in the current window; no email or external browser is needed.
    The app waits for identity, membership, and the private plan before opening
-   the three tabs: **Piano**, **Allenamento**, and **Profilo**. New members without a plan land directly on **Piano** to
-   create/import and save one. **Profilo** shows account settings, progress,
-   standings, and private history, not the login form. An authenticated but unapproved account sees
+   five tabs, left to right: **PIANO**, **PROGRESSO**, **ALLENAMENTO**,
+   **CLASSIFICA**, **PROFILO**. New members without a plan land directly on **Piano** to
+   create/import and save one. **Progresso** shows private performance charts,
+   current-workout completion on this device, and private history.
+   **Classifica** shows synchronized monthly Aura/day/streak statistics, group
+   standings, scoring rules, and manual-workout reviews and outcomes.
+   **Profilo** contains account settings and sign-out only, not the login form.
+   Display names are edited in Profilo; manual workouts are submitted in Allenamento.
+   Progresso and Classifica remain accessible without an active plan.
+   An authenticated but unapproved account sees
    only an access-pending screen with retry and sign-out controls.
 
 Signed-in tabs omit the shared app-title header; only actionable account/offline
@@ -290,10 +297,10 @@ members is retained.
 completo** for a compact, expandable overview. This is a training cycle, not a
 calendar schedule. Inspecting another day does not change the active training
 day or its progress. **Allenamento** remains the step-by-step training screen.
-**Profilo > Progressi** leads with private exercise/circuit performance trends,
+**Progresso** leads with private exercise/circuit performance trends,
 previous-result comparisons, and recorded bests, followed by current-device workout
-completion, monthly training days/Punti Aura, the universal weekly multiplier,
-private history, and the friends ranking.
+completion and private history. **Classifica** contains monthly training
+days/Punti Aura, the universal weekly multiplier, and the friends ranking.
 Local pending results are labeled separately from synchronized scores and history.
 
 **Piano** offers three creation paths: **Manualmente**, **Modello CSV**, and
@@ -384,7 +391,7 @@ There is one current plan per user, with immutable prior versions:
   training-day ID, completion time, each step's completed/skipped status, and
   optional actual set measurements, and AMRAP rounds/extra reps. Several workouts on the same date appear separately in history
   but earn daily leaderboard credit only once.
-- **History:** **Profilo > Storico privato** displays private completed workouts, with
+- **History:** **Progresso > Storico privato** displays private completed workouts, with
   original exercise targets/definitions, step results, actual measurements, and AMRAP results.
   **Carica precedenti** loads older workouts in pages of 20. Missing historical
   measurements are shown as unrecorded, never zero or inferred from targets.
@@ -433,7 +440,7 @@ The timer still has to finish before **Completa AMRAP**.
 
 ### Understanding your progress
 
-In **Profilo > Progressi > La tua evoluzione**, select an exercise/circuit and a
+In **Progresso > La tua evoluzione**, select an exercise/circuit and a
 metric to see dated trends, per-set details, and latest-versus-previous changes.
 Standard-exercise bests are independent maximum weights, reps, and seconds—not
 necessarily achieved together. A heavier weight at fewer reps is not labeled an
@@ -530,7 +537,7 @@ review counts and outcome are shared review data, **not private exercise history
 Do not include confidential information. The associated private plan, planned-day
 definition and exercise measurements are not exposed to reviewers.
 
-**Profilo > Allenamenti manuali** lists requests awaiting your vote and your own
+**Classifica > Allenamenti manuali** lists requests awaiting your vote and your own
 submissions, with pagination and refresh controls. Requests and votes cannot be
 edited or withdrawn. All other approved members at submission form a fixed
 electorate; the submitter cannot vote. Approval requires
@@ -588,7 +595,7 @@ date for historical totals; clients cannot choose the calculation date or activa
 
 Retired objective/voting RPCs are removed; legacy tables are retained without
 authenticated access and no longer participate in scoring. Older frontends need
-to be refreshed after deployment. Standings refresh on opening Profilo, after
+to be refreshed after deployment. Standings refresh on opening Classifica, after
 sync, or with **Aggiorna / riprova**; they are not realtime and retain an update label.
 
 ## Offline and completion semantics

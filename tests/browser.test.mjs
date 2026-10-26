@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { JSDOM } from "jsdom";
 
 const sources = {};
-for (const file of ["state", "attendance", "social", "social-config", "ui", "tab-workout", "tab-leaderboard", "tab-progress", "tab-profile", "workout-library", "plan-editor", "plan-validation", "tab-plan", "tab-day", "auth-entry", "app"]) {
+for (const file of ["state", "attendance", "social", "social-config", "ui", "manual-workouts", "tab-workout", "tab-leaderboard", "tab-progress", "tab-profile", "workout-library", "plan-editor", "plan-validation", "tab-plan", "tab-day", "auth-entry", "app"]) {
   sources[file] = await readFile(new URL(`../assets/${file}.js`, import.meta.url), "utf8");
 }
 const plan = {
@@ -64,6 +64,7 @@ function setup(t, { configured = false, signedIn = true, approved = true } = {})
     rpc: async (name, args) => {
       state.calls.push({ name, args });
       if (state.beforeRpc) await state.beforeRpc(name, args);
+      if (name === "manual_workout_activity") return { data: [], error: state.rpcError };
       if (name === "ranking_objectives") return {
         data: { cutover: "2026-10-26", week_start: "2026-10-19", settles_on: "2026-10-26", proposals: [] },
         error: state.rpcError,
@@ -107,6 +108,7 @@ test("unconfigured social features do not interfere with workout completion", as
   assert.match(container.textContent, /Non conteggiato/);
   assert.equal(w.pendingAttendance(alice).length, 0);
   cleanup();
+  w.eval(sources["manual-workouts"]);
   w.renderLeaderboard(container);
   assert.match(container.textContent, /non configurata/);
   assert.equal(container.querySelector('input[type="email"]'), null);
@@ -246,6 +248,7 @@ test("unapproved and signed-out workouts are not silently credited to a later ac
 test("leaderboard escapes display names, shows fractional scores, and supports password reauthentication", async (t) => {
   const { w, state, container } = setup(t, { configured: true });
   await w.workoutSocial.init();
+  w.eval(sources["manual-workouts"]);
   const cleanup = w.renderLeaderboard(container);
   await tick();
   assert.equal(container.querySelectorAll("img").length, 0);
@@ -277,6 +280,7 @@ test("invalid auth callbacks and corrupt local storage show explicit errors", as
   assert.throws(() => w.pendingAttendance(alice));
   w.workoutSocial.recordCompletion("run");
   assert.match(w.workoutSocial.snapshot().error, /non salvata/);
+  w.eval(sources["manual-workouts"]);
   w.renderLeaderboard(container);
   assert.ok(errors.length > 0);
   assert.ok(container.querySelector(".social-status").classList.contains("error"));
@@ -314,20 +318,27 @@ test("actual workout buttons capture optional skips and AMRAP completion without
 test("boot defaults to the daily Plan and Progress works without social config", async (t) => {
   const { w, container } = setup(t);
   w.document.body.insertAdjacentHTML("beforeend",
-    '<div id="loading"></div><nav class="app-nav"><button data-view="plan"></button><button data-view="workout"></button><button data-view="profile"></button></nav>');
+    '<div id="loading"></div><nav class="app-nav"><button data-view="plan"></button><button data-view="progress"></button><button data-view="workout"></button><button data-view="leaderboard"></button><button data-view="profile"></button></nav>');
   w.loadPlan = async () => structuredClone(plan);
-  for (const file of ["plan-validation", "workout-library", "tab-plan", "tab-day", "tab-progress", "tab-profile", "plan-editor", "auth-entry"]) w.eval(sources[file]);
+  for (const file of ["plan-validation", "workout-library", "manual-workouts", "tab-plan", "tab-day", "tab-progress", "tab-profile", "plan-editor", "auth-entry"]) w.eval(sources[file]);
   w.eval(sources.app);
   await tick();
   assert.match(container.textContent, /Riscaldamento/);
   assert.match(container.textContent, /Piano di esempio, in sola lettura/);
   assert.match(container.textContent, /creare o modificare.*account approvato/);
   assert.equal(w.getActiveView(), "plan");
-  assert.equal(w.document.querySelectorAll(".app-nav button").length, 3);
+  assert.equal(w.document.querySelectorAll(".app-nav button").length, 5);
   assert.equal(container.querySelector('[aria-pressed="true"]').textContent, "Oggi");
-  w.document.querySelector('[data-view="profile"]').click();
-  assert.match(container.textContent, /Classifica non configurata/);
+  w.document.querySelector('[data-view="progress"]').click();
   assert.match(container.textContent, /Progressi su questo dispositivo/);
+  assert.equal(w.getActiveView(), "progress");
+  assert.equal(container.querySelector(".leaderboard"), null);
+  w.document.querySelector('[data-view="leaderboard"]').click();
+  assert.match(container.textContent, /Classifica non configurata/);
+  assert.equal(container.querySelector(".personal-progress"), null);
+  w.document.querySelector('[data-view="profile"]').click();
+  assert.equal(container.querySelector(".personal-progress"), null);
+  assert.equal(container.querySelector(".leaderboard"), null);
   assert.equal(w.getActiveView(), "profile");
 });
 

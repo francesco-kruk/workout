@@ -3,7 +3,11 @@ function renderProfile(container) {
   const owner = social.snapshot().user?.id || null;
   let disposed = false;
   let submitting = false;
-  container.replaceChildren(textEl("h2", "Profilo"));
+  container.replaceChildren(
+    textEl("p", "Il tuo account", "cycle-label"),
+    textEl("h2", "Profilo"),
+    textEl("p", "Gestisci la tua identità nel gruppo e le impostazioni di accesso.", "view-description")
+  );
 
   const account = document.createElement("section");
   account.className = "social-panel profile-account";
@@ -18,7 +22,7 @@ function renderProfile(container) {
   logout.addEventListener("click", () => { void social.signOut(); });
   summary.append(identity, logout);
   account.appendChild(summary);
-  const unavailable = textEl("p", "Le impostazioni account richiedono l'accesso al gruppo. I progressi locali restano disponibili.", "view-description");
+  const unavailable = textEl("p", "Le impostazioni account richiedono l'accesso al gruppo. I progressi locali restano disponibili nella tab Progresso.", "view-description");
   account.appendChild(unavailable);
   const forms = [];
 
@@ -127,10 +131,6 @@ function renderProfile(container) {
   });
 
   container.appendChild(account);
-  const progress = document.createElement("section");
-  progress.className = "profile-progress";
-  container.appendChild(progress);
-  const cleanupProgress = renderProgress(progress, { embedded: true });
 
   function update() {
     const state = social.snapshot();
@@ -164,6 +164,5 @@ function renderProfile(container) {
     disposed = true;
     clearPasswords();
     window.removeEventListener("workout-social-change", update);
-    cleanupProgress();
   };
 }

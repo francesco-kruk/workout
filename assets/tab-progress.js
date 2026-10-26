@@ -1,29 +1,24 @@
-function renderProgress(container, { embedded = false } = {}) {
+function renderProgress(container) {
   container.replaceChildren(
-    ...(embedded ? [textEl("h3", "Progressi", "profile-progress-heading")] : [
-      textEl("p", "La tua costanza", "cycle-label"),
-      textEl("h2", "Progressi"),
-    ])
+    textEl("p", "Il tuo percorso", "cycle-label"),
+    textEl("h2", "Progresso"),
+    textEl("p", "Misura la tua evoluzione, ritrova i risultati e segui il piano. Uno sguardo solo ai tuoi allenamenti.", "view-description")
   );
   const personal = document.createElement("section");
   personal.className = "social-panel personal-progress";
-  const monthly = document.createElement("section");
-  monthly.className = "social-panel";
   const history = document.createElement("section");
   history.className = "social-panel workout-history";
-  const ranking = document.createElement("section");
   const performance = document.createElement("section");
   performance.className = "social-panel personal-performance";
-  const manual = document.createElement("section");
-  manual.className = "social-panel";
-  container.append(performance, personal, monthly, ranking, manual, history);
+  container.append(performance, personal, history);
   const cleanupPerformance = renderPerformance(performance);
-  const cleanupManual = window.renderManualWorkouts?.(manual);
 
   function update() {
     const library = window.workoutLibrary.snapshot();
-    const social = window.workoutSocial.snapshot();
-    personal.replaceChildren(textEl("h3", "Allenamento attuale"));
+    personal.replaceChildren(
+      textEl("p", "Sul tuo dispositivo", "cycle-label"),
+      textEl("h3", "Allenamento attuale")
+    );
     const session = library.plan?.sessions.find((day) => day.id === getCurrentSessionId(library.plan));
     if (session) {
       personal.appendChild(textEl("p", session.label, "view-description"));
@@ -33,54 +28,20 @@ function renderProgress(container, { embedded = false } = {}) {
       personal.appendChild(textEl("p", "Crea un piano nella tab Piano per iniziare.", "view-description"));
     }
 
-    monthly.replaceChildren(textEl("h3", "Riepilogo mensile"));
-    const own = social.rows.find((row) => row.user_id === social.user?.id);
-    if (own) {
-      if (own.month_start) {
-        monthly.appendChild(textEl("p", new Intl.DateTimeFormat("it-IT", {
-          month: "long", year: "numeric", timeZone: "Europe/Rome",
-        }).format(new Date(`${own.month_start}T12:00:00Z`)), "cycle-label"));
-      }
-      const metrics = document.createElement("dl");
-      metrics.className = "progress-metrics";
-      for (const [label, value, unit, className] of [
-        ["Giorni di allenamento", own.gym_days],
-        ["Punti Aura", formatScore(own.points), null, "aura-metric"],
-        ["Sequenza settimanale", own.weekly_streak || 0, Number(own.weekly_streak) === 1 ? "settimana" : "settimane"],
-        ["Moltiplicatore dell'ultima settimana attiva", `${formatScore(own.multiplier)}×`],
-      ]) {
-        const metric = document.createElement("div");
-        if (className) metric.className = className;
-        const result = textEl("dd", String(value));
-        if (unit) result.appendChild(textEl("span", ` ${unit}`, "metric-unit"));
-        metric.append(textEl("dt", label), result);
-        metrics.appendChild(metric);
-      }
-      monthly.appendChild(metrics);
-      monthly.appendChild(textEl("p", "Dati sincronizzati · giorni e Punti Aura del mese. Il moltiplicatore si applica subito; la sequenza settimanale continua tra mesi.", "view-description"));
-      if (social.updatedAt) monthly.appendChild(textEl("p", `Ultimo aggiornamento: ${new Date(social.updatedAt).toLocaleString("it-IT")}.`, "view-description"));
-    } else {
-      monthly.appendChild(textEl("p", !social.configured
-        ? "Le statistiche mensili richiedono l'accesso al gruppo."
-        : "Statistiche mensili non ancora disponibili. Consulta lo stato della classifica qui sotto.", "view-description"));
-    }
     const status = textEl("p", library.error, "social-status");
     status.setAttribute("role", "status");
     status.classList.toggle("error", Boolean(library.error));
-    monthly.appendChild(status);
+    personal.appendChild(status);
     renderWorkoutHistory(history, library);
   }
 
   const events = ["workout-history-change", "workout-library-status", "workout-social-change"];
   for (const event of events) window.addEventListener(event, update);
   update();
-  const cleanupRanking = renderLeaderboard(ranking, { embedded: true, showProfile: !embedded });
   void window.workoutLibrary.loadHistory();
   return () => {
     for (const event of events) window.removeEventListener(event, update);
-    cleanupRanking();
     cleanupPerformance();
-    cleanupManual?.();
   };
 }
 
@@ -186,7 +147,9 @@ function renderPerformance(container) {
 
   function render() {
     if (!active || !window.document) return;
-    container.replaceChildren(textEl("h3", "La tua evoluzione"),
+    container.replaceChildren(
+      textEl("p", "Risultati privati", "cycle-label"),
+      textEl("h3", "La tua evoluzione"),
       textEl("p", "Risultati personali, non punti in classifica. Registra peso e ripetizioni o durata durante ogni serie in Allenamento.", "view-description"));
     if (!owner) {
       container.appendChild(textEl("p", "Accedi con un piano personale per registrare e confrontare i tuoi risultati.", "view-description"));
