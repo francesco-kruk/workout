@@ -511,7 +511,7 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
   });
   t.after(() => dom.window.close());
   const w = dom.window;
-  for (const file of ["state", "attendance", "social", "ui", "timer-audio", "tab-workout", "tab-leaderboard"]) {
+  for (const file of ["state", "attendance", "social", "ui", "tab-workout", "tab-leaderboard"]) {
     w.eval(await readFile(new URL(`../assets/${file}.js`, import.meta.url), "utf8"));
   }
   const client = {
