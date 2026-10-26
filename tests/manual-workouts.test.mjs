@@ -89,16 +89,239 @@ async function setup(t, plan = structuredClone(planTemplate)) {
   const form = (choice = "replace", text = "Corsa al parco: 5 km in 30 minuti") => {
     const element = app.querySelector("[data-manual-workout]");
     assert.ok(element);
+    assert.equal(element.closest("details").hidden, false);
     element.querySelector("textarea").value = text;
     element.querySelector("select").value = choice;
     return element;
   };
   const submit = (element) => element.dispatchEvent(new w.Event("submit", { cancelable: true }));
-  return { w, state, plan, app, render, form, submit, row };
+  const retainIntent = (sessionId, replacesPlanned = true) => {
+    const intent = {
+      id: randomUUID(), planVersionId: record.id, sessionId,
+      runId: w.getProgress(sessionId).runId, description: "Run 5 km", replacesPlanned,
+    };
+    w.localStorage.setItem(`workout.manualIntent:${alice}:${record.id}`, JSON.stringify(intent));
+    return intent;
+  };
+  return { w, state, plan, app, render, form, submit, row, retainIntent };
 }
 
-test("replacement advances without fabricated planned completion and extra preserves partial progress", async (t) => {
-  const { w, app, plan, state, render, form, submit } = await setup(t);
+const manualVisible = (app) => Boolean(app.querySelector(".manual-workout:not([hidden])"));
+const button = (app, label) => {
+  const target = [...app.querySelectorAll("button")].find((item) => item.textContent === label);
+  assert.ok(target, label);
+  return target;
+};
+const input = (w, element, value) => {
+  element.value = value;
+  element.dispatchEvent(new w.Event("input", { bubbles: true }));
+};
+
+test("manual option hides on first warmup completion and returns after undo, including remount", async (t) => {
+  const { w, app, render } = await setup(t);
+  let cleanup = render();
+  assert.equal(manualVisible(app), true);
+  button(app, "Riscaldamento completato").click();
+  assert.equal(manualVisible(app), false);
+  cleanup();
+  cleanup = render();
+  assert.equal(manualVisible(app), false);
+  button(app, "Indietro").click();
+  assert.equal(manualVisible(app), true);
+  cleanup();
+});
+
+test("no-warmup results hide the option immediately without replacing focused inputs or the manual draft", async (t) => {
+  const plan = structuredClone(planTemplate);
+  plan.warmup = [];
+  plan.sessions[0].exercises[0].usesWeight = true;
+  const { w, app, render, form } = await setup(t, plan);
+  const cleanup = render();
+  const draft = form("extra", "Manual draft");
+  const reps = app.querySelector('[data-actual-field="reps"]');
+  const weight = app.querySelector('[data-actual-field="weightKg"]');
+  const notes = app.querySelector("[data-set-notes]");
+  reps.focus();
+  input(w, reps, "0");
+  assert.equal(manualVisible(app), false);
+  assert.equal(w.document.activeElement, reps);
+  input(w, reps, "");
+  assert.equal(manualVisible(app), true);
+  assert.equal(draft.querySelector("textarea").value, "Manual draft");
+  input(w, weight, "0");
+  assert.equal(manualVisible(app), false);
+  input(w, weight, "");
+  input(w, notes, "Reduced range");
+  assert.equal(manualVisible(app), false);
+  input(w, notes, " ");
+  assert.equal(manualVisible(app), true);
+  input(w, notes, "");
+  input(w, reps, "5");
+  input(w, weight, "0");
+  button(app, "Serie completata").click();
+  assert.equal(manualVisible(app), false);
+  button(app, "Indietro").click();
+  assert.equal(manualVisible(app), false);
+  input(w, app.querySelector('[data-actual-field="reps"]'), "");
+  input(w, app.querySelector('[data-actual-field="weightKg"]'), "");
+  assert.equal(manualVisible(app), true);
+  cleanup();
+});
+
+test("exercise timer activity hides the option through pause and remount until reset", async (t) => {
+  const plan = structuredClone(planTemplate);
+  plan.warmup = [];
+  Object.assign(plan.sessions[0].exercises[0], { measurementMode: "seconds", target: "20 secondi" });
+  const { w, app, render } = await setup(t, plan);
+  let cleanup = render();
+  const duration = app.querySelector(".exercise-timer input");
+  input(w, duration, "30");
+  assert.equal(manualVisible(app), true);
+  button(app, "Avvia timer").click();
+  assert.equal(manualVisible(app), false);
+  button(app, "Pausa").click();
+  assert.equal(manualVisible(app), false);
+  cleanup();
+  cleanup = render();
+  assert.equal(manualVisible(app), false);
+  button(app, "Azzera timer").click();
+  assert.equal(manualVisible(app), true);
+  cleanup();
+});
+
+test("AMRAP start hides immediately, pause and remount retain activity, reset restores availability", async (t) => {
+  const plan = structuredClone(planTemplate);
+  plan.warmup = [];
+  const { w, app, render } = await setup(t, plan);
+  w.setCurrentSessionId("circuit");
+  w.clearProgress("circuit");
+  let cleanup = render();
+  assert.equal(manualVisible(app), true);
+  button(app, "Avvia timer").click();
+  assert.equal(manualVisible(app), false);
+  assert.equal(w.getProgress("circuit").amrap.remainingMilliseconds, 60000);
+  button(app, "Pausa").click();
+  assert.equal(manualVisible(app), false);
+  cleanup();
+  cleanup = render();
+  assert.equal(manualVisible(app), false);
+  button(app, "Reset").click();
+  assert.equal(manualVisible(app), true);
+  button(app, "+").click();
+  assert.equal(manualVisible(app), false);
+  button(app, "−").click();
+  assert.equal(manualVisible(app), true);
+  const extra = app.querySelector('[data-actual-field="extraReps"]');
+  input(w, extra, "0");
+  assert.equal(manualVisible(app), false);
+  input(w, extra, "");
+  assert.equal(manualVisible(app), true);
+  input(w, extra, "3");
+  button(app, "Reset").click();
+  assert.equal(manualVisible(app), true);
+  cleanup();
+  cleanup = render();
+  assert.equal(manualVisible(app), true);
+  cleanup();
+});
+
+test("activity detection ignores unrelated and empty state but recognizes jumps, rest, and AMRAP completion", async (t) => {
+  const { w, plan } = await setup(t);
+  const session = plan.sessions[0];
+  const activity = () => w.hasPlannedWorkoutActivity(plan, session);
+  w.setStepStatus("circuit", "warmup:warm", "completed");
+  w.setStepStatus("strength", "removed:0", "completed");
+  w.updateSetResult("strength", "removed:0", { reps: "5" });
+  w.updateSetResult("strength", "squat:0", { mode: "reps", reps: "", notes: " " });
+  assert.equal(activity(), false);
+  w.completeStepsBefore(plan, "strength", "squat:1");
+  assert.equal(activity(), true);
+  w.undoLastStep("strength");
+  assert.equal(activity(), true);
+  w.undoLastStep("strength");
+  assert.equal(activity(), false);
+  w.updateRestTimer("strength", { durationSeconds: 60, remainingMilliseconds: 60000, deadline: null });
+  assert.equal(activity(), true);
+  w.clearRestTimer("strength");
+  assert.equal(activity(), false);
+  w.clearProgress("circuit");
+  w.updateAmrap("circuit", { completed: true });
+  assert.equal(w.hasPlannedWorkoutActivity(plan, plan.sessions[1]), true);
+});
+
+test("first no-warmup set completion hides the option without requiring stored measurements", async (t) => {
+  const plan = structuredClone(planTemplate);
+  plan.warmup = [];
+  const { w, app, render } = await setup(t, plan);
+  w.setStepStatus("strength", "squat:0", "completed");
+  const cleanup = render();
+  assert.equal(manualVisible(app), false);
+  button(app, "Indietro").click();
+  assert.equal(manualVisible(app), true);
+  cleanup();
+});
+
+test("AMRAP start storage errors are explicit and do not start the timer", async (t) => {
+  const plan = structuredClone(planTemplate);
+  plan.warmup = [];
+  const { w, app, render } = await setup(t, plan);
+  w.setCurrentSessionId("circuit");
+  w.clearProgress("circuit");
+  const cleanup = render();
+  const setItem = w.Storage.prototype.setItem;
+  w.Storage.prototype.setItem = function (key, value) {
+    if (key.startsWith("workout.progress:")) throw new Error("Storage full");
+    return setItem.call(this, key, value);
+  };
+  button(app, "Avvia timer").click();
+  assert.match(app.textContent, /Timer AMRAP non salvato. Storage full/);
+  assert.equal(manualVisible(app), true);
+  assert.equal(w.getProgress("circuit").amrap.remainingMilliseconds, null);
+  assert.equal(button(app, "Avvia timer").disabled, false);
+  w.Storage.prototype.setItem = setItem;
+  button(app, "Avvia timer").click();
+  assert.equal(manualVisible(app), false);
+  cleanup();
+});
+
+test("stale manual forms cannot create new submissions after planned activity begins", async (t) => {
+  const { w, app, state, render, form, submit } = await setup(t);
+  const cleanup = render();
+  const stale = form();
+  w.setStepStatus("strength", "warmup:warm", "completed");
+  submit(stale);
+  await until(() => /pianificato già iniziato/.test(app.textContent));
+  assert.equal(state.submissions.size, 0);
+  assert.equal(state.calls.some((call) => call.name === "submit_manual_workout"), false);
+  assert.equal(w.localStorage.getItem(`workout.manualIntent:${alice}:${state.record.id}`), null);
+  cleanup();
+});
+
+test("retained failed submissions remain recoverable after planned activity starts", async (t) => {
+  const { w, app, state, plan, render, form, submit } = await setup(t);
+  state.failAfterSubmit = true;
+  let cleanup = render();
+  submit(form());
+  await until(() => /Connection lost/.test(app.textContent));
+  const id = [...state.submissions.keys()][0];
+  button(app, "Riscaldamento completato").click();
+  assert.equal(manualVisible(app), true);
+  assert.equal(app.querySelector("textarea").disabled, true);
+  cleanup();
+  cleanup = render();
+  assert.equal(manualVisible(app), true);
+  state.failAfterSubmit = false;
+  submit(app.querySelector("[data-manual-workout]"));
+  await until(() => w.getCurrentSessionId(plan) === "circuit");
+  assert.equal(state.submissions.size, 1);
+  assert.ok(state.calls.filter((call) => call.name === "submit_manual_workout").every((call) => call.args.p_id === id));
+  assert.equal(manualVisible(app), true);
+  cleanup();
+});
+
+test("recovered replacement advances without fabricated completion and extra preserves partial progress", async (t) => {
+  const { w, app, plan, state, render, form, submit, retainIntent } = await setup(t);
+  retainIntent("strength", false);
   w.setStepStatus("strength", "warmup:warm", "completed");
   w.updateSetResult("strength", "squat:0", { mode: "reps", reps: "4" });
   const original = plain(w.getProgress("strength"));
@@ -109,6 +332,7 @@ test("replacement advances without fabricated planned completion and extra prese
   assert.deepEqual(plain(w.getProgress("strength")), original);
   assert.equal(state.calls.filter((call) => call.name === "submit_workout_result" || call.name === "submit_gym_day").length, 0);
   cleanup();
+  retainIntent("strength");
   cleanup = render();
   submit(form("replace"));
   await until(() => w.getCurrentSessionId(plan) === "circuit");
@@ -239,8 +463,9 @@ test("switching plan during submission preserves the new plan and leaves origina
 test("replacing an active AMRAP stops its timer before resetting the next run", async (t) => {
   const single = structuredClone(planTemplate);
   single.sessions = [single.sessions[1]];
-  const { w, plan, app, render, form, submit } = await setup(t, single);
+  const { w, plan, app, render, form, submit, retainIntent } = await setup(t, single);
   w.clearProgress("circuit");
+  retainIntent("circuit");
   w.setStepStatus("circuit", "warmup:warm", "completed");
   let live = 0;
   const setInterval = w.setInterval.bind(w);
@@ -262,7 +487,8 @@ test("manual replacement and extra submissions clear the exercise timer without 
   for (const choice of ["extra", "replace"]) {
     const timed = structuredClone(planTemplate);
     Object.assign(timed.sessions[0].exercises[0], { measurementMode: "seconds", target: "20 secondi" });
-    const { w, app, render, form, submit } = await setup(t, timed);
+    const { w, app, render, form, submit, retainIntent } = await setup(t, timed);
+    retainIntent("strength", choice === "replace");
     w.setStepStatus("strength", "warmup:warm", "completed");
     w.updateSetResult("strength", "squat:0", { seconds: "12" });
     const intervals = new Map();
@@ -356,8 +582,9 @@ test("a failed local progression write retains the submitted request and can be 
 test("a submission resolving after navigation stops the newly mounted timer and refreshes that workout", async (t) => {
   const single = structuredClone(planTemplate);
   single.sessions = [single.sessions[1]];
-  const { w, state, app, render, form, submit } = await setup(t, single);
+  const { w, state, app, render, form, submit, retainIntent } = await setup(t, single);
   w.clearProgress("circuit");
+  retainIntent("circuit");
   w.setStepStatus("circuit", "warmup:warm", "completed");
   let cleanup = render();
   let release;

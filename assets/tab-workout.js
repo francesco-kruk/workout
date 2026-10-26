@@ -49,6 +49,13 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
   }
 
+  function refreshManualAvailability() {
+    const panel = container.querySelector(".manual-workout");
+    if (!panel || panel.hasAttribute("data-manual-recovery")) return;
+    const session = plan.sessions.find((day) => day.id === getCurrentSessionId(plan));
+    if (session) panel.hidden = hasPlannedWorkoutActivity(plan, session);
+  }
+
   function renderCurrent() {
     stopTimer();
     refreshExerciseTimer = null;
@@ -262,6 +269,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     function persist() {
       try {
         updateSetResult(sessionId, step.key, values);
+        refreshManualAvailability();
         error.textContent = validateActualNumbers() || validateNotes();
       } catch (failure) {
         console.error("Salvataggio risultato locale non riuscito.", failure);
@@ -431,6 +439,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
 
     function save(timer) {
       current = updateExerciseTimer(sessionId, timer);
+      refreshManualAvailability();
     }
 
     function guard(action) {
@@ -725,7 +734,9 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       "timer-value"
     );
     const timerStatus = textEl("span", "Timer in pausa", "timer-status");
-    timer.append(timeDisplay, timerStatus);
+    const timerError = textEl("p", "", "social-status error");
+    timerError.setAttribute("role", "alert");
+    timer.append(timeDisplay, timerStatus, timerError);
     card.appendChild(timer);
 
     const roundsControl = document.createElement("div");
@@ -741,6 +752,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     decrement.addEventListener("click", () => {
       rounds = Math.max(0, rounds - 1);
       updateAmrap(session.id, { rounds });
+      refreshManualAvailability();
       roundsLabel.textContent = String(rounds);
       decrement.disabled = rounds === 0;
       increment.disabled = false;
@@ -748,6 +760,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     increment.addEventListener("click", () => {
       rounds += 1;
       updateAmrap(session.id, { rounds });
+      refreshManualAvailability();
       roundsLabel.textContent = String(rounds);
       decrement.disabled = false;
       increment.disabled = rounds >= 100000;
@@ -769,6 +782,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     extra.addEventListener("input", () => {
       try {
         updateAmrap(session.id, { extraReps: extra.validity.badInput ? "invalid" : extra.value });
+        refreshManualAvailability();
         resultError.textContent = validateNumberInput(extra, "Ripetizioni extra");
       } catch (failure) {
         console.error("Salvataggio ripetizioni extra non riuscito.", failure);
@@ -816,6 +830,15 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         return;
       }
 
+      try {
+        updateAmrap(session.id, { remainingMilliseconds });
+        refreshManualAvailability();
+        timerError.textContent = "";
+      } catch (failure) {
+        console.error("Avvio timer AMRAP non riuscito.", failure);
+        timerError.textContent = `Timer AMRAP non salvato. ${failure.message}`;
+        return;
+      }
       deadline = Date.now() + remainingMilliseconds;
       timerCleanup = () => {
         if (deadline === null) return;
@@ -837,16 +860,18 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       remainingMilliseconds = durationSeconds * 1000;
       rounds = 0;
       updateAmrap(session.id, {
-        remainingMilliseconds,
+        remainingMilliseconds: null,
         rounds,
         extraReps: "",
         completed: false,
       });
+      refreshManualAvailability();
       roundsLabel.textContent = "0";
       extra.value = "";
       extra.setCustomValidity("");
       extra.setAttribute("aria-invalid", "false");
       resultError.textContent = "";
+      timerError.textContent = "";
       decrement.disabled = true;
       increment.disabled = false;
       updateTimerUi();
