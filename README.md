@@ -247,9 +247,9 @@ in its private completed-workout history, performance details, and "last time"
 reference after synchronization. Blank notes are omitted. They never replace
 required reps/time or weight, and are not shown in the shared leaderboard.
 
-**Profilo** shows the current display name and effective email. Expand **Nome
-visualizzato**, **Modifica email**, or **Modifica password** to edit one setting
-at a time. Names use the existing 1–40 character limit and update the ranking.
+**Profilo** shows the current display name and effective email. **Nome
+visualizzato**, **Modifica email**, and **Modifica password** are always visible,
+with separate forms and save buttons. Names use the existing 1–40 character limit and update the ranking.
 Email/password changes require the current password; a new password also requires
 matching confirmation and at least eight characters. Supabase may enforce stronger
 password policies. Passwords are never saved in app drafts or browser storage.

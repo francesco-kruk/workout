@@ -1898,7 +1898,6 @@ async function openProfile(t, options = {}) {
 
 function profileForm(app, kind, values) {
   const form = app.querySelector(`[data-profile-form="${kind}"]`);
-  form.closest("details").open = true;
   for (const [name, value] of Object.entries(values)) form.elements.namedItem(name).value = value;
   return form;
 }
@@ -1932,6 +1931,22 @@ test("signed-in tabs omit branding and logout until Profile, while status notice
   assert.equal(app.querySelector(".personal-performance"), null);
   assert.equal(app.querySelector(".leaderboard"), null);
   assert.equal(app.querySelector(".ranking-reviews"), null);
+});
+
+test("Profile shows all account-setting forms immediately without expandable components", async (t) => {
+  const { app } = await openProfile(t);
+  assert.equal(app.querySelector("details, summary"), null);
+  assert.deepEqual([...app.querySelectorAll(".profile-settings > h3")].map((heading) => heading.textContent),
+    ["Nome visualizzato", "Modifica email", "Modifica password"]);
+  assert.equal(app.querySelectorAll("[data-profile-form]").length, 3);
+  for (const form of app.querySelectorAll("[data-profile-form]")) {
+    assert.equal(form.closest("[hidden]"), null);
+    assert.equal(form.querySelector('button[type="submit"]').disabled, false);
+    for (const field of form.querySelectorAll("input")) {
+      assert.equal(field.type === "hidden", false);
+      assert.equal(field.disabled, false);
+    }
+  }
 });
 
 test("profile name editing trims, validates and refreshes standings without resetting plans or drafts", async (t) => {
@@ -2039,7 +2054,7 @@ test("pending email changes display the effective address until confirmation", a
   await until(() => !w.workoutSocial.snapshot().busy);
   assert.match(app.querySelector(".profile-summary").textContent, /alice@example.test/);
   assert.doesNotMatch(app.querySelector(".profile-summary").textContent, /pending@example.test/);
-  assert.match(app.querySelector(".profile-settings:nth-of-type(2)").textContent, /In attesa di conferma: pending@example.test/);
+  assert.match(form.closest(".profile-settings").textContent, /In attesa di conferma: pending@example.test/);
   assert.equal(form.elements["current-password"].value, "");
   state.emails.set(alice, "pending@example.test");
   state.pendingEmail = null;

@@ -997,9 +997,14 @@ body:not(.auth-entry) main {
   margin-top: 20px;
 }
 
-.profile-settings > summary {
-  min-height: 44px;
-  padding: 8px 0;
+.profile-settings + .profile-settings {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.profile-settings > h3 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
 }
 
 .profile-feedback:empty {
