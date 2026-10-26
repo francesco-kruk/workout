@@ -2511,7 +2511,7 @@ test("rest replaces the exercise until expiry, preserves pause/resume, and clean
   assert.match(app.querySelector(".focus-kicker").textContent, /serie 3 di 3/);
 });
 
-test("rest identifies the completed exercise at transitions and counts only completed sets", async (t) => {
+test("rest identifies completed sets and is skipped when advancing to another exercise", async (t) => {
   const original = record(alice, "Contesto recupero");
   original.definition.sessions[0].exercises.push({
     id: "pushup", name: "Piegamenti", sets: 1, target: "8", rest: 0, measurementMode: "reps", usesWeight: false,
@@ -2529,11 +2529,30 @@ test("rest identifies the completed exercise at transitions and counts only comp
   input(w, "Peso (kg)", "20");
   input(w, "Ripetizioni", "8");
   click(w, "Serie completata");
-  assert.equal(app.querySelector(".rest-timer h3").textContent, "Squat");
-  assert.match(app.querySelector(".rest-timer").textContent, /2 di 3 serie completate/);
-  assert.doesNotMatch(app.querySelector(".rest-timer").textContent, /Piegamenti/);
-  click(w, "Salta recupero");
+  assert.equal(w.getProgress("strength").restTimer, null);
+  assert.equal(app.querySelector(".rest-timer"), null);
   assert.equal(app.querySelector(".focus-card h3").textContent, "Piegamenti");
+});
+
+test("completing an exercise's last set skips rest and opens the next exercise", async (t) => {
+  const original = record(alice, "Transizione esercizi");
+  Object.assign(original.definition.sessions[0].exercises[0], {
+    sets: 1, optionalSets: 0, usesWeight: false,
+  });
+  original.definition.sessions[0].exercises.push({
+    id: "pushup", name: "Piegamenti", sets: 1, target: "8 ripetizioni", rest: 60,
+    measurementMode: "reps", usesWeight: false,
+  });
+  const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  assert.equal(w.getProgress("strength").restTimer, null);
+  assert.equal(app.querySelector(".rest-timer"), null);
+  assert.equal(app.querySelector(".focus-card h3").textContent, "Piegamenti");
+  assert.equal(clock.intervals.size, 0);
 });
 
 test("rest persists across reload, expires on visibility return, and quick navigation clears it", async (t) => {

@@ -674,8 +674,10 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       applyWorkoutProgress(plan, sessionId, () => {
         setStepStatus(sessionId, step.key, "completed");
       });
-      const nextIndex = getSessionSummary(plan, plan.sessions.find((day) => day.id === sessionId)).currentIndex;
-      if (step.type === "set" && nextIndex >= 0) {
+      const nextSummary = getSessionSummary(plan, plan.sessions.find((day) => day.id === sessionId));
+      const nextStep = nextSummary.steps[nextSummary.currentIndex];
+      if (step.type === "set" && nextStep?.type === "set"
+        && nextStep.exercise.id === step.exercise.id) {
         const durationSeconds = step.exercise.rest;
         if (durationSeconds > 0) {
           updateRestTimer(sessionId, {
