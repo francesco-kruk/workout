@@ -4,21 +4,6 @@ function renderWorkout(container, plan, onSessionAdvanced) {
   let refreshExerciseTimer = null;
   let active = true;
   let manualNotice = "";
-  function updateAudioStatus() {
-    const status = container.querySelector("[data-audio-status]");
-    if (status) {
-      status.textContent = window.workoutAudio.error();
-      status.hidden = !status.textContent;
-    }
-  }
-  function prepareAudio() {
-    const progress = getProgress(getCurrentSessionId(plan));
-    if ([progress.restTimer, progress.exerciseTimer].some((timer) => timer && timer.deadline !== null)) {
-      void window.workoutAudio.prepare();
-    }
-  }
-  container.addEventListener("click", prepareAudio);
-  window.addEventListener("workout-audio-change", updateAudioStatus);
   function updateSocialStatus() {
     const status = container.querySelector("[data-social-status]");
     if (status) {
@@ -36,20 +21,19 @@ function renderWorkout(container, plan, onSessionAdvanced) {
   window.addEventListener("workout-manual-will-complete", stopTimer);
   function resumeRestView() {
     if (!active || document.hidden) return;
-    if (refreshExerciseTimer) refreshExerciseTimer(true);
+    if (refreshExerciseTimer) refreshExerciseTimer();
     const sessionId = getCurrentSessionId(plan);
     const rest = getProgress(sessionId).restTimer;
     if (rest && ((rest.deadline !== null && rest.deadline <= Date.now())
       || rest.remainingMilliseconds === 0)) {
-      finishRest(sessionId, Boolean(container.querySelector(".rest-timer")));
+      finishRest(sessionId);
     }
   }
   document.addEventListener("visibilitychange", resumeRestView);
 
-  function finishRest(sessionId, notify) {
+  function finishRest(sessionId) {
     if (!active || !getProgress(sessionId).restTimer) return;
     clearRestTimer(sessionId);
-    if (notify) window.workoutAudio.play();
     renderCurrent();
   }
 
@@ -90,11 +74,6 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         `Allenamento · giornata ${sessionIndex + 1} di ${plan.sessions.length}`
       )
     );
-    const audioStatus = textEl("p", "", "social-status error");
-    audioStatus.dataset.audioStatus = "";
-    audioStatus.setAttribute("role", "status");
-    container.appendChild(audioStatus);
-    updateAudioStatus();
     container.appendChild(renderJumpControls(session, summary));
     container.appendChild(createProgress(summary, "step completati"));
     if (!summary.complete && !hasRecordedWorkout(summary.progress.runId)) {
@@ -465,7 +444,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       }
     }
 
-    function refresh(notify = false) {
+    function refresh() {
       if (!active) return;
       current = getProgress(sessionId).exerciseTimer;
       if (current && current.deadline !== null && current.deadline <= Date.now()) {
@@ -479,11 +458,9 @@ function renderWorkout(container, plan, onSessionAdvanced) {
             deadline: remainingMilliseconds > 0 ? Date.now() + remainingMilliseconds : null,
           });
           if (remainingMilliseconds === 0) stopTimer();
-          if (notify) window.workoutAudio.play();
         } else {
           save({ ...current, deadline: null, remainingMilliseconds: 0 });
           stopTimer();
-          if (notify) window.workoutAudio.play();
         }
       }
       const running = current?.deadline != null;
@@ -502,7 +479,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     }
 
     function startTicker() {
-      if (timerId === null) timerId = window.setInterval(() => guard(() => refresh(true)), 250);
+      if (timerId === null) timerId = window.setInterval(() => guard(() => refresh()), 250);
     }
 
     duration.addEventListener("input", () => {
@@ -513,7 +490,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     toggle.addEventListener("click", () => guard(() => {
       if (current?.deadline != null) {
         if (current.deadline <= Date.now()) {
-          refresh(true);
+          refresh();
           return;
         }
         save({ ...current, deadline: null, remainingMilliseconds: Math.max(0, current.deadline - Date.now()) });
@@ -530,7 +507,6 @@ function renderWorkout(container, plan, onSessionAdvanced) {
           remainingMilliseconds: milliseconds,
           deadline: Date.now() + milliseconds,
         });
-        void window.workoutAudio.prepare();
         startTicker();
       }
       refresh();
@@ -541,7 +517,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       error.textContent = "";
       refresh();
     }));
-    refreshExerciseTimer = (notify) => guard(() => refresh(notify));
+    refreshExerciseTimer = () => guard(() => refresh());
     guard(() => {
       refresh();
       if (current?.deadline != null) startTicker();
@@ -586,7 +562,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
           return;
         }
         if (active.deadline <= Date.now()) {
-          finishRest(sessionId, true);
+          finishRest(sessionId);
           return;
         }
         refreshTimerUi();
@@ -616,7 +592,7 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       const current = getProgress(sessionId).restTimer;
       if (!current) return;
       if (current.deadline !== null && current.deadline <= Date.now()) {
-        finishRest(sessionId, true);
+        finishRest(sessionId);
         return;
       }
 
@@ -976,8 +952,6 @@ function renderWorkout(container, plan, onSessionAdvanced) {
     window.removeEventListener("workout-social-change", updateSocialStatus);
     window.removeEventListener("workout-manual-complete", manualCompleted);
     window.removeEventListener("workout-manual-will-complete", stopTimer);
-    container.removeEventListener("click", prepareAudio);
-    window.removeEventListener("workout-audio-change", updateAudioStatus);
     document.removeEventListener("visibilitychange", resumeRestView);
   };
 }

@@ -185,17 +185,12 @@ by server validation.
 
 ### Profile and account settings
 
-**Suono dei timer** plays one short beep when an active rest or exercise timer finishes.
+Rest and exercise timers are silent; Profile has no sound setting.
 During rest, the timer shows the exercise just completed and its completed-set
 count, including any optional sets in the total. Skipped sets are not counted as
 completed. This context remains visible while paused and after reloading.
-It is enabled by default; check **Disattiva il suono dei timer** in Profilo to
-mute it. This preference stays on the current browser/device, including local
-mode, and is not synchronized to your account. Audio needs a user interaction;
-unsupported or blocked audio is reported without preventing workout tracking.
-Background or locked-screen playback is best-effort: browsers may suspend audio
-or timer callbacks. Skipping rest does not play a sound, and an already-expired
-timer restored on page load does not play an old alert. The AMRAP timer is unchanged.
+Browsers may suspend timer callbacks in the background or with the screen locked.
+An already-expired rest timer restored on page load is cleared. The AMRAP timer is unchanged.
 
 Standard exercises tracked in seconds also offer an optional **Timer esercizio**
 inside the exercise card. Exact time targets prefill the duration; ranges use
@@ -203,17 +198,16 @@ their upper end (for example, `15-25 secondi` starts at 25 seconds). Open-ended 
 ambiguous targets require manual entry. Edit **Timer: durata (secondi)** before
 starting, using an integer from 1 to 86400. **Avvia timer** starts the countdown;
 **Pausa** / **Riprendi** preserve remaining time, and **Azzera timer** stops it
-without a beep and unlocks the duration for editing. At zero, the timer sounds
-once but does not enter actual seconds, complete the set, or start recovery.
+and unlocks the duration for editing. At zero, the timer shows **Tempo terminato**
+but does not enter actual seconds, complete the set, or start recovery.
 Actual results and set completion remain manual, even before the timer ends.
 
 Running and paused exercise timers are saved locally for the current set and
 restore after reloading or returning to Allenamento. An expired timer restored
-after leaving the view shows **Tempo terminato** without an old alert. Completing
+after leaving the view shows **Tempo terminato**. Completing
 or skipping a set, undoing/jumping progress, changing days, resetting progress,
 or successfully submitting a manual workout clears it. Warm-up, repetition-based
-sets, and the AMRAP circuit timer are unchanged. Exercise timers share the rest
-timer's sound preference, including existing saved mute settings.
+sets, and the AMRAP circuit timer are unchanged.
 
 When creating or editing a plan, **Riscaldamento comune** is optional. New plans
 start without warm-up; add items or remove all of them as needed. Included items

@@ -127,50 +127,6 @@ function renderProfile(container) {
   });
 
   container.appendChild(account);
-  const sound = document.createElement("section");
-  sound.className = "social-panel";
-  sound.appendChild(textEl("h3", "Suono dei timer"));
-  const muteLabel = textEl("label", "Disattiva il suono dei timer");
-  muteLabel.className = "tracking-weight";
-  const mute = document.createElement("input");
-  mute.type = "checkbox";
-  mute.dataset.restSoundMuted = "";
-  muteLabel.appendChild(mute);
-  const soundStatus = textEl("p", "", "social-status");
-  soundStatus.setAttribute("role", "status");
-  sound.append(muteLabel,
-    textEl("p", "Un breve segnale alla fine del recupero e del timer esercizio. Preferenza salvata solo su questo browser. In background o con lo schermo bloccato il browser potrebbe sospendere l'audio.", "view-description"),
-    soundStatus);
-  container.appendChild(sound);
-
-  function updateSound() {
-    try {
-      mute.checked = window.workoutAudio.muted();
-      mute.disabled = false;
-      soundStatus.textContent = window.workoutAudio.error();
-      soundStatus.classList.toggle("error", Boolean(soundStatus.textContent));
-    } catch (failure) {
-      console.error("Preferenza audio non leggibile.", failure);
-      mute.disabled = true;
-      soundStatus.textContent = `Preferenza audio non disponibile. ${failure.message}`;
-      soundStatus.classList.add("error");
-    }
-  }
-  mute.addEventListener("change", () => {
-    try {
-      window.workoutAudio.setMuted(mute.checked);
-      soundStatus.textContent = mute.checked ? "Suono disattivato su questo browser." : "Suono attivato su questo browser.";
-      if (!mute.checked) void window.workoutAudio.prepare();
-    } catch (failure) {
-      console.error("Preferenza audio non salvata.", failure);
-      updateSound();
-      soundStatus.textContent = `Preferenza audio non salvata. ${failure.message}`;
-      soundStatus.classList.add("error");
-    }
-  });
-  window.addEventListener("workout-audio-change", updateSound);
-  window.addEventListener("storage", updateSound);
-  updateSound();
   const progress = document.createElement("section");
   progress.className = "profile-progress";
   container.appendChild(progress);
@@ -208,8 +164,6 @@ function renderProfile(container) {
     disposed = true;
     clearPasswords();
     window.removeEventListener("workout-social-change", update);
-    window.removeEventListener("workout-audio-change", updateSound);
-    window.removeEventListener("storage", updateSound);
     cleanupProgress();
   };
 }
