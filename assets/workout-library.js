@@ -4,6 +4,7 @@ window.workoutLibrary = (() => {
   let revision = 0;
   let loadRequest = 0;
   let historyRequest = 0;
+  let draft = null;
 
   const emit = (name = "workout-library-status") => window.dispatchEvent(new Event(name));
   const cacheKey = (userId) => `workout.personalPlan:${userId}`;
@@ -39,6 +40,7 @@ window.workoutLibrary = (() => {
     window.dispatchEvent(new Event("workout-library-will-change"));
     revision += 1;
     state.userId = userId;
+    draft = null;
     state.record = null;
     state.availableRecord = null;
     state.loading = Boolean(userId);
@@ -133,30 +135,33 @@ window.workoutLibrary = (() => {
   }
 
   function getDraft() {
+    return draft;
+  }
+
+  function getLegacyDraft() {
     if (!state.userId) throw new Error("Accedi prima di modificare una scheda.");
     const raw = localStorage.getItem(draftKey(state.userId));
     if (!raw) return null;
-    const draft = JSON.parse(raw);
-    if (!isObject(draft) || typeof draft.versionId !== "string" || !isObject(draft.definition)
-      || !(draft.baseVersionId === null || typeof draft.baseVersionId === "string")) {
+    const stored = JSON.parse(raw);
+    if (!isObject(stored) || typeof stored.versionId !== "string" || !isObject(stored.definition)
+      || !(stored.baseVersionId === null || typeof stored.baseVersionId === "string")) {
       throw new Error("Bozza locale non valida. Esportala prima di rimuoverla.");
     }
-    if (draft.restFormat !== "seconds") {
-      normalizeStoredWorkoutRest(draft.definition);
-      draft.restFormat = "seconds";
-      localStorage.setItem(draftKey(state.userId), JSON.stringify(draft));
-    }
-    return draft;
+    if (stored.restFormat !== "seconds") normalizeStoredWorkoutRest(stored.definition);
+    return stored;
   }
 
   function writeDraft(definition, baseVersionId = state.record?.id || null) {
     if (!state.userId) throw new Error("Accedi prima di modificare una scheda.");
-    const draft = { versionId: crypto.randomUUID(), baseVersionId, definition, restFormat: "seconds" };
-    localStorage.setItem(draftKey(state.userId), JSON.stringify(draft));
+    draft = { versionId: crypto.randomUUID(), baseVersionId, definition, restFormat: "seconds" };
     return draft;
   }
 
   function discardDraft() {
+    draft = null;
+  }
+
+  function discardLegacyDraft() {
     if (state.userId) localStorage.removeItem(draftKey(state.userId));
   }
 
@@ -173,15 +178,15 @@ window.workoutLibrary = (() => {
     const errors = validateWorkoutPlan(submitted.definition);
     if (errors.length) throw new Error(errors.join("\n"));
     if (!userId || !window.workoutSocial.snapshot().member) throw new Error("È richiesto l'accesso al gruppo.");
-    if (!navigator.onLine) throw new Error("Bozza conservata sul dispositivo. Torna online per pubblicarla.");
+    if (!navigator.onLine) throw new Error("Sei offline. Torna online per salvare; le modifiche restano solo in questa schermata. Non chiuderla.");
     const record = validateRecord(await window.workoutSocial.savePersonalPlan(userId, submitted), userId);
-    if (revision !== currentRevision) throw new Error("Account cambiato durante il salvataggio. La bozza originale è conservata.");
+    if (revision !== currentRevision) throw new Error("Account cambiato durante il salvataggio. Verifica il piano accedendo di nuovo all'account originale.");
     loadRequest += 1;
     state.loading = false;
     if (!state.record || record.revision >= state.record.revision) {
       localStorage.setItem(cacheKey(userId), JSON.stringify(record));
     }
-    if (getDraft()?.versionId === submitted.versionId) localStorage.removeItem(draftKey(userId));
+    if (getDraft()?.versionId === submitted.versionId) discardDraft();
     state.error = "";
     if (!state.record || record.revision >= state.record.revision) activate(record);
     emit();
@@ -237,6 +242,6 @@ window.workoutLibrary = (() => {
     };
   }
 
-  return { start, snapshot, identityChanged, load, getDraft, writeDraft, discardDraft, save, loadHistory, useLatest, completionDetails,
+  return { start, snapshot, identityChanged, load, getDraft, writeDraft, discardDraft, getLegacyDraft, discardLegacyDraft, save, loadHistory, useLatest, completionDetails,
     template: () => structuredClone(template) };
 })();

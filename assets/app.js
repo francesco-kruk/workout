@@ -10,6 +10,7 @@ function boot() {
   let screen = "";
   let templateLoaded = false;
   let templateError = "";
+  let planSaving = false;
 
   function updateAccountStatus() {
     const status = document.getElementById("account-status");
@@ -95,9 +96,13 @@ function boot() {
 
   nav.addEventListener("click", (event) => {
     const button = event.target.closest("[data-view]");
-    if (!button || nav.hidden) return;
+    if (!button || nav.hidden || planSaving) return;
     setActiveView(button.dataset.view);
     renderView();
+  });
+  window.addEventListener("workout-plan-saving", (event) => {
+    planSaving = event.detail;
+    for (const button of navButtons) button.disabled = planSaving;
   });
   window.addEventListener("workout-library-will-change", () => {
     cleanupView?.();

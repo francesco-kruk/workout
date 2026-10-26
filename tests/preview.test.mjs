@@ -16,11 +16,12 @@ test("local preview injects a demo adapter without changing the production entry
   assert.equal((await fetch(`${origin}/__preview/client.js`)).status, 200);
   assert.equal((await fetch(`${origin}/package.json`)).status, 404);
   assert.equal((await fetch(`${origin}/.git/config`)).status, 404);
-  for (const [path, type] of [["data/workout-plan-template.csv", "text/csv"], ["assets/skills/workout-plan/SKILL.md", "text/markdown"]]) {
+  for (const [path, type] of [["data/workout-plan-template.csv", "text/csv"]]) {
     const response = await fetch(`${origin}/${path}`);
     assert.equal(response.status, 200);
     assert.ok(response.headers.get("content-type").startsWith(type));
   }
+  assert.equal((await fetch(`${origin}/assets/skills/workout-plan/SKILL.md`)).status, 404);
   const production = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.doesNotMatch(production, /preview\/client|preview-client/);
 
@@ -49,6 +50,7 @@ test("local preview injects a demo adapter without changing the production entry
     button.click();
   };
   click("Modifica piano");
+  click("Usa Manuale");
   const title = app.querySelector(".plan-editor input");
   title.value = "Piano locale modificato";
   title.dispatchEvent(new w.Event("input", { bubbles: true }));
@@ -64,11 +66,12 @@ test("local preview injects a demo adapter without changing the production entry
   assert.equal(await w.workoutSocial.fetchPersonalPlan(previewUserId, "missing-version"), null);
   assert.equal(JSON.parse(w.localStorage.getItem("workout.preview.database")).plans.at(-1).definition.title, "Piano locale modificato");
   click("Nuovo piano");
-  assert.equal(app.querySelectorAll(".creation-paths > section").length, 3);
-  click("Crea scheda");
+  assert.equal(app.querySelectorAll(".creation-paths > section").length, 2);
+  click("Usa Manuale");
   assert.ok(app.querySelector(".plan-editor"));
   assert.equal(w.workoutLibrary.getDraft().definition.title, "La mia scheda");
   w.document.querySelector('[data-view="leaderboard"]').click();
+  assert.equal(w.workoutLibrary.getDraft(), null);
   await w.workoutSocial.refresh();
   assert.equal(app.querySelectorAll(".leaderboard tbody tr").length, 3);
   assert.match(w.document.querySelector(".preview-banner").textContent, /Anteprima locale/);
