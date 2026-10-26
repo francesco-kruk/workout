@@ -3,7 +3,11 @@ function renderProfile(container) {
   const owner = social.snapshot().user?.id || null;
   let disposed = false;
   let submitting = false;
-  container.replaceChildren(textEl("h2", "Profilo"));
+  container.replaceChildren(
+    textEl("p", "Il tuo account", "cycle-label"),
+    textEl("h2", "Profilo"),
+    textEl("p", "Gestisci la tua identità nel gruppo e le impostazioni di accesso.", "view-description")
+  );
 
   const account = document.createElement("section");
   account.className = "social-panel profile-account";
@@ -18,7 +22,7 @@ function renderProfile(container) {
   logout.addEventListener("click", () => { void social.signOut(); });
   summary.append(identity, logout);
   account.appendChild(summary);
-  const unavailable = textEl("p", "Le impostazioni account richiedono l'accesso al gruppo. I progressi locali restano disponibili.", "view-description");
+  const unavailable = textEl("p", "Le impostazioni account richiedono l'accesso al gruppo. I progressi locali restano disponibili nella tab Progresso.", "view-description");
   account.appendChild(unavailable);
   const forms = [];
 
@@ -35,18 +39,18 @@ function renderProfile(container) {
   }
 
   function setting(title, kind, saveLabel) {
-    const details = document.createElement("details");
-    details.className = "profile-settings";
-    details.appendChild(textEl("summary", title));
+    const section = document.createElement("section");
+    section.className = "profile-settings";
+    section.appendChild(textEl("h3", title));
     const form = document.createElement("form");
     form.dataset.profileForm = kind;
     const status = textEl("p", "", "social-status profile-feedback");
     status.setAttribute("role", "status");
     const button = createButton(saveLabel, "btn btn-primary");
     button.type = "submit";
-    details.appendChild(form);
-    account.appendChild(details);
-    const item = { details, form, status, button };
+    section.appendChild(form);
+    account.appendChild(section);
+    const item = { section, form, status, button };
     forms.push(item);
     return item;
   }
@@ -60,7 +64,7 @@ function renderProfile(container) {
   const newEmail = field(address.form, "Nuova email", "email", "email", "email");
   const emailPassword = field(address.form, "Password attuale", "current-password", "password", "current-password");
   const pendingEmail = textEl("p", "", "view-description");
-  address.details.insertBefore(pendingEmail, address.form);
+  address.section.insertBefore(pendingEmail, address.form);
   address.form.prepend(textEl("p", "La modifica può richiedere conferme via email. L'indirizzo attuale resta valido finché la modifica non è confermata.", "view-description"));
 
   const password = setting("Modifica password", "password", "Salva password");
@@ -85,7 +89,6 @@ function renderProfile(container) {
   async function submit(item, operation) {
     if (disposed || submitting || social.snapshot().busy) return;
     item.status.textContent = "";
-    item.details.open = true;
     if (!item.form.reportValidity()) {
       clearPasswords();
       return;
@@ -127,10 +130,6 @@ function renderProfile(container) {
   });
 
   container.appendChild(account);
-  const progress = document.createElement("section");
-  progress.className = "profile-progress";
-  container.appendChild(progress);
-  const cleanupProgress = renderProgress(progress, { embedded: true });
 
   function update() {
     const state = social.snapshot();
@@ -152,7 +151,7 @@ function renderProfile(container) {
     summary.hidden = !state.user;
     logout.disabled = state.busy || submitting;
     for (const item of forms) {
-      item.details.hidden = !available;
+      item.section.hidden = !available;
       item.form.setAttribute("aria-busy", String(state.busy || submitting));
       for (const input of item.form.querySelectorAll("input, button")) input.disabled = state.busy || submitting;
     }
@@ -164,6 +163,5 @@ function renderProfile(container) {
     disposed = true;
     clearPasswords();
     window.removeEventListener("workout-social-change", update);
-    cleanupProgress();
   };
 }

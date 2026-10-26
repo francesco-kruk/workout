@@ -103,7 +103,7 @@ test("text and controls remain readable on the strongest layered Aura tints", (t
 test("browser chrome matches the canvas and the stylesheet cache version is updated", (t) => {
   const { document, tokens } = theme(t);
   assert.equal(document.querySelector('meta[name="theme-color"]').content, tokens.getPropertyValue("--bg").trim());
-  assert.equal(document.querySelector('link[rel="stylesheet"]').getAttribute("href"), "assets/styles.css?v=14");
+  assert.equal(document.querySelector('link[rel="stylesheet"]').getAttribute("href"), "assets/styles.css?v=16");
   assert.equal(document.documentElement.lang, "it");
 });
 
@@ -124,6 +124,21 @@ test("actions and workout statuses preserve distinctive non-color treatments", (
   assert.equal(rule(".social-status.error").getPropertyValue("color"), "var(--danger)");
   assert.equal(rule(".btn:disabled").getPropertyValue("cursor"), "not-allowed");
   assert.equal(rule(".btn").getPropertyValue("min-height"), "52px");
+});
+
+test("five-view navigation and separated panels retain responsive Aura styling", (t) => {
+  const { document, rule } = theme(t);
+  assert.equal(document.querySelectorAll(".app-nav button").length, 5);
+  assert.equal(rule(".app-nav").getPropertyValue("grid-template-columns"), "repeat(5, minmax(0, 1fr))");
+  assert.equal(rule(".app-nav button").getPropertyValue("min-height"), "55px");
+  assert.equal(rule(".app-nav button").getPropertyValue("min-width"), "0");
+  assert.equal(rule(".app-nav button").getPropertyValue("white-space"), "nowrap");
+  assert.equal(rule(".app-nav .nav-label").getPropertyValue("overflow-wrap"), "anywhere");
+  assert.equal(rule(".app-nav .nav-label").getPropertyValue("font-size"), "inherit");
+  assert.equal(rule(".ranking-metrics .aura-metric").getPropertyValue("grid-column"), "1 / -1");
+  assert.equal(rule(".personal-performance").getPropertyValue("border-top"), "2px solid var(--neon)");
+  assert.equal(rule(".ranking-overview").getPropertyValue("border-top"), "2px solid var(--neon)");
+  assert.equal(rule(".leaderboard-scroll").getPropertyValue("overflow-x"), "auto");
 });
 
 test("all form controls have visible keyboard focus and motion preferences are respected", (t) => {

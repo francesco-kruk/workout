@@ -5,6 +5,10 @@ function textEl(tag, text, className) {
   return element;
 }
 
+function formatScore(value) {
+  return Number(value).toLocaleString("it-IT", { maximumFractionDigits: 2 });
+}
+
 function validateNumberInput(input, label) {
   input.setCustomValidity("");
   let message = "";

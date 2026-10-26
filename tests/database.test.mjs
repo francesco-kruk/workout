@@ -580,6 +580,7 @@ test("workout UI -> offline receipt -> real PostgreSQL RPC -> monthly leaderboar
   assert.equal(w.pendingAttendance(alice).length, 0);
   assert.match(container.textContent, /Presenza sincronizzata/);
   cleanupWorkout();
+  w.eval(await readFile(new URL("../assets/manual-workouts.js", import.meta.url), "utf8"));
   const cleanupLeaderboard = w.renderLeaderboard(container);
   for (let attempt = 0; attempt < 100 && w.workoutSocial.snapshot().busy; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -700,7 +701,7 @@ test("full app edits a private plan and atomically syncs offline detailed result
   assert.equal(history[0].steps["squat:1"], "skipped");
   assert.deepEqual(history[0].measurements,{"squat:0":{weightKg:20,reps:8}});
   assert.equal(Number((await board())[0].points), 10);
-  w.document.querySelector('[data-view="profile"]').click();
+  w.document.querySelector('[data-view="progress"]').click();
   for (let attempt = 0; attempt < 100 && w.workoutLibrary.snapshot().historyLoading; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }

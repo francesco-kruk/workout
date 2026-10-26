@@ -921,15 +921,15 @@ body:not(.auth-entry) main {
 
 .app-nav {
   position: fixed;
-  right: 12px;
+  right: 4px;
   bottom: calc(10px + env(safe-area-inset-bottom));
-  left: 12px;
+  left: 4px;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  width: min(calc(100% - 24px), 724px);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: min(calc(100% - 8px), 724px);
   margin: 0 auto;
-  padding: 6px;
+  padding: 4px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
@@ -941,20 +941,33 @@ body:not(.auth-entry) main {
   display: grid;
   justify-items: center;
   gap: 2px;
+  min-width: 0;
   min-height: 55px;
+  padding: 6px 1px;
   border: 0;
   border-radius: var(--radius);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  font-size: 0.72rem;
+  font-family: var(--display-font);
+  font-size: clamp(0.6rem, 2.6vw, 0.8rem);
   font-weight: 850;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
+  white-space: nowrap;
   text-transform: uppercase;
 }
 
 .app-nav button span {
   font-size: 1.05rem;
+}
+
+.app-nav .nav-label {
+  min-width: 0;
+  max-width: 100%;
+  font-size: inherit;
+  line-height: 1.1;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .app-nav button svg {
@@ -984,18 +997,78 @@ body:not(.auth-entry) main {
   margin-top: 20px;
 }
 
-.profile-settings > summary {
-  min-height: 44px;
-  padding: 8px 0;
+.profile-settings + .profile-settings {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.profile-settings > h3 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
 }
 
 .profile-feedback:empty {
   display: none;
 }
 
-.profile-progress-heading {
-  margin: 28px 0 0;
-  font-size: 1.4rem;
+.social-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+#workout-app > .cycle-label + h2 {
+  margin: 6px 0 12px;
+  font-size: clamp(2rem, 7vw, 3rem);
+}
+
+.personal-performance,
+.ranking-overview {
+  border-top: 2px solid var(--neon);
+  padding: 20px;
+}
+
+.personal-performance > h3,
+.ranking-overview > h3 {
+  margin: 6px 0 12px;
+  font-family: var(--display-font);
+  font-size: clamp(1.6rem, 6vw, 2.2rem);
+  text-transform: uppercase;
+}
+
+.personal-progress {
+  border-left: 3px solid var(--accent);
+}
+
+.personal-progress > h3 {
+  margin-top: 6px;
+}
+
+.workout-history > details,
+.ranking-reviews > section {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.workout-history > details > summary {
+  min-height: 44px;
+}
+
+.ranking-metrics .aura-metric {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.ranking-metrics > div:last-child {
+  grid-column: 1 / -1;
+}
+
+.progress-metrics.ranking-metrics dt {
+  font-size: clamp(0.7rem, 2.8vw, 0.85rem);
 }
 
 .app-nav button.active {
@@ -1006,15 +1079,6 @@ body:not(.auth-entry) main {
   background-image: linear-gradient(110deg, transparent 25%, var(--aura-tint) 48%, transparent 70%);
   background-size: 300% 100%;
   animation: electric-current 5s linear infinite;
-}
-
-.social-panel {
-  margin-top: 18px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow);
 }
 
 .social-panel label {

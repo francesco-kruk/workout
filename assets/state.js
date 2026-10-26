@@ -5,7 +5,7 @@ const STORAGE_KEYS = {
 };
 
 const PROGRESS_VERSION = 2;
-const VALID_VIEWS = new Set(["plan", "workout", "profile"]);
+const VALID_VIEWS = new Set(["plan", "progress", "workout", "leaderboard", "profile"]);
 window.WORKOUT_EXERCISE_SETUP_SECONDS = 5;
 let workoutScope = "";
 
@@ -66,10 +66,9 @@ function applyManualWorkoutProgress(plan, intent) {
 
 function getActiveView() {
   const stored = localStorage.getItem(STORAGE_KEYS.activeView);
-  if (stored === "day" || stored === "leaderboard" || stored === "progress") {
-    const migrated = stored === "day" ? "plan" : "profile";
-    setActiveView(migrated);
-    return migrated;
+  if (stored === "day") {
+    setActiveView("plan");
+    return "plan";
   }
   return VALID_VIEWS.has(stored) ? stored : "plan";
 }

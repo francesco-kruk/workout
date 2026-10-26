@@ -131,7 +131,7 @@ async function mount(t, {
         data: { cutover: "2026-10-26", week_start: "2026-10-19", settles_on: "2026-10-26", proposals: [] },
         error: null,
       };
-      if (name === "friends_leaderboard") return { data: state.rows, error: null };
+      if (name === "friends_leaderboard") return { data: state.rows, error: state.rankingError };
       if (name === "workout_performance") return { data: performance || { series: [], results: [], more: false }, error: state.performanceError };
       if (name === "workout_previous") return { data: previous || null, error: state.performanceError };
       if (name === "workout_history") return { data: state.history, error: state.historyError };
@@ -634,9 +634,10 @@ test("session restoration waits for identity, membership and private plan withou
   releasePlan();
   await mounting;
   assert.equal(w.document.querySelector(".app-nav").hidden, false);
-  assert.equal(w.getActiveView(), "profile");
+  assert.equal(w.getActiveView(), "leaderboard");
   assert.equal(w.workoutLibrary.snapshot().record.id, a.id);
   assert.equal(w.document.querySelector('.auth-panel input[type="email"]'), null);
+  navigate(w, "profile");
   assert.equal(w.document.querySelector("#sign-out").hidden, false);
   assert.ok(state.calls.some((call) => call.name === "friends_leaderboard"));
 });
@@ -1048,7 +1049,7 @@ test("rest displays app-supplied units in daily, full-plan, workout and historic
       id: "units-history", completed_at: "2026-10-01Z", revision: 1, plan_title: "Unità",
       warmup: definition.warmup, session: original.definition.sessions[0], steps: {},
     }];
-    navigate(w, "profile");
+    navigate(w, "progress");
     await until(() => app.querySelector(".workout-history .exercise-rest"));
     assert.equal(app.querySelector(".workout-history .exercise-rest").textContent, expected);
   }
@@ -1502,7 +1503,7 @@ test("personal completions queue full result snapshots offline and synchronize i
   const submission = state.calls.find((call) => call.name === "submit_workout_result");
   assert.equal(submission.args.p_completed_at, completedAt);
   assert.equal(state.calls.filter((call) => call.name === "submit_gym_day").length, 0);
-  navigate(w, "profile");
+  navigate(w, "progress");
   await until(() => !w.workoutLibrary.snapshot().historyLoading);
   assert.match(w.document.body.textContent, /Scheda storica \(v1\)/);
   assert.match(w.document.body.textContent, /Squat, serie 3 · Obiettivo: 5 ripetizioni · Effettivo: Non registrato: Saltato/);
@@ -1551,7 +1552,7 @@ test("private plans still load when the public example is unavailable", async (t
   const { w, app } = await mount(t, { plans: new Map([[alice, original]]), templateError: new Error("404") });
   assert.equal(w.workoutLibrary.snapshot().plan.title, "Solo Supabase");
   assert.match(app.textContent, /Riscaldamento/);
-  navigate(w, "profile");
+  navigate(w, "leaderboard");
   assert.match(app.textContent, /Classifica/);
 });
 
@@ -1588,17 +1589,20 @@ test("a stale fetch cannot downgrade a newly published version", async (t) => {
   assert.equal(w.workoutLibrary.snapshot().loading, false);
 });
 
-test("three-tab navigation migrates old selections and defaults to Plan", async (t) => {
+test("five-tab navigation preserves selections, migrates day and defaults to Plan", async (t) => {
   for (const [stored, expected] of [
-    ["day", "plan"], ["leaderboard", "profile"], ["workout", "workout"],
-    ["progress", "profile"], ["profile", "profile"], ["invalid", "plan"], [null, "plan"],
+    ["day", "plan"], ["leaderboard", "leaderboard"], ["workout", "workout"],
+    ["progress", "progress"], ["profile", "profile"], ["plan", "plan"], ["invalid", "plan"], [null, "plan"],
   ]) {
     const { w } = await mount(t, {
       plans: new Map([[alice, record(alice, "Piano")]]),
       storage: stored ? { "workout.activeView": stored } : {},
     });
     assert.deepEqual([...w.document.querySelectorAll(".app-nav button")].map((button) => button.dataset.view),
-      ["plan", "workout", "profile"]);
+      ["plan", "progress", "workout", "leaderboard", "profile"]);
+    assert.deepEqual([...w.document.querySelectorAll(".app-nav button")].map((button) =>
+      button.textContent.trim().replace(/[▦▶]/g, "").trim().toUpperCase()),
+    ["PIANO", "PROGRESSO", "ALLENAMENTO", "CLASSIFICA", "PROFILO"]);
     assert.equal(w.getActiveView(), expected);
     assert.equal(w.document.querySelector('.app-nav [aria-current="page"]').dataset.view, expected);
     if (["day", "leaderboard", "progress"].includes(stored)) assert.equal(w.localStorage.getItem("workout.activeView"), expected);
@@ -1633,6 +1637,104 @@ test("Plan browses daily and full views without mutating the active workout", as
   assert.match(app.textContent, /Squat/);
 });
 
+test("standalone views fetch only their own data and release listeners when leaving", async (t) => {
+  const listeners = new Map();
+  const { w, state, app } = await mount(t, {
+    plans: new Map([[alice, record(alice, "Modulare")]]),
+    beforeBoot: (w) => {
+      const add = w.addEventListener.bind(w);
+      const remove = w.removeEventListener.bind(w);
+      w.addEventListener = (name, listener, options) => {
+        if (!listeners.has(name)) listeners.set(name, new Set());
+        listeners.get(name).add(listener);
+        add(name, listener, options);
+      };
+      w.removeEventListener = (name, listener, options) => {
+        listeners.get(name)?.delete(listener);
+        remove(name, listener, options);
+      };
+    },
+  });
+  const relevant = ["workout_history", "workout_performance", "manual_workout_activity", "friends_leaderboard"];
+  const calls = () => state.calls.filter((call) => relevant.includes(call.name)).map((call) => call.name);
+  const counts = () => [...listeners].map(([name, items]) => [name, items.size]).filter(([, count]) => count);
+  navigate(w, "profile");
+  const baseline = counts();
+  state.calls = [];
+  for (let cycle = 0; cycle < 2; cycle += 1) {
+    navigate(w, "progress");
+    await until(() => !w.workoutLibrary.snapshot().historyLoading
+      && !/Caricamento statistiche/.test(app.textContent));
+    assert.ok(app.querySelector(".personal-performance"));
+    assert.ok(app.querySelector(".workout-history"));
+    assert.equal(app.querySelector(".ranking-reviews"), null);
+    assert.equal(app.querySelector("[data-profile-form]"), null);
+    assert.ok(calls().includes("workout_history"));
+    assert.ok(calls().includes("workout_performance"));
+    assert.ok(calls().every((name) => ["workout_history", "workout_performance"].includes(name)));
+    navigate(w, "profile");
+    assert.deepEqual(counts(), baseline);
+    state.calls = [];
+    navigate(w, "leaderboard");
+    await until(() => !w.workoutSocial.snapshot().busy && !/Aggiornamento revisioni/.test(app.textContent));
+    assert.ok(app.querySelector(".ranking-reviews"));
+    assert.ok(app.querySelector(".leaderboard"));
+    assert.equal(app.querySelector(".personal-performance"), null);
+    assert.equal(app.querySelector(".workout-history"), null);
+    assert.equal(app.querySelector("form"), null);
+    assert.deepEqual(calls().sort(), ["friends_leaderboard", "manual_workout_activity", "manual_workout_activity"]);
+    navigate(w, "profile");
+    assert.deepEqual(counts(), baseline);
+    state.calls = [];
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(calls(), []);
+  }
+});
+
+test("all five views preserve active workout, timers, drafts and pending receipts", async (t) => {
+  const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Conservato")]]) });
+  controlWorkoutClock(w);
+  w.workoutLibrary.writeDraft({ ...structuredClone(definition), title: "Bozza conservata" });
+  startRest(w);
+  Object.defineProperty(w.navigator, "onLine", { value: false, configurable: true });
+  w.workoutSocial.recordCompletion(randomUUID());
+  assert.equal(w.pendingAttendance(alice).length, 1);
+  const before = snapshotStorage(w);
+  for (const view of ["progress", "leaderboard", "profile", "plan", "workout"]) {
+    navigate(w, view);
+    await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
+    const after = snapshotStorage(w);
+    delete after["workout.activeView"];
+    const expected = { ...before };
+    delete expected["workout.activeView"];
+    assert.deepEqual(after, expected);
+    assert.equal(w.getCurrentSessionId(definition), "strength");
+    assert.equal(w.workoutLibrary.getDraft().definition.title, "Bozza conservata");
+  }
+  assert.ok(app.querySelector(".rest-timer"));
+});
+
+test("Ranking works without a plan and exposes synchronization errors and retry", async (t) => {
+  const { w, state, app } = await mount(t);
+  state.rankingError = new Error("Ranking unavailable");
+  navigate(w, "leaderboard");
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(app.querySelector("h2").textContent, "Classifica");
+  assert.match(app.querySelector(".ranking-overview .social-status").textContent, /Ranking unavailable/);
+  assert.equal(app.querySelector(".aura-metric"), null);
+  assert.equal(app.querySelector("[data-profile-form]"), null);
+  state.rankingError = null;
+  state.rows = [{
+    user_id: alice, display_name: "Amico", gym_days: 1, points: 10,
+    weekly_streak: 1, multiplier: 1, position: 1, month_start: "2026-10-01",
+  }];
+  click(w, "Aggiorna / riprova");
+  await until(() => !w.workoutSocial.snapshot().busy);
+  assert.equal(app.querySelector(".aura-metric dd").textContent, "10");
+  assert.equal(app.querySelector(".leaderboard-self").getAttribute("aria-label"), "La tua posizione");
+  assert.doesNotMatch(app.querySelector(".ranking-overview").textContent, /Ranking unavailable/);
+});
+
 test("editor is explicit, keeps drafts on return, and reveals the invalid exercise step", async (t) => {
   const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Piano")]]) });
   assert.equal(app.querySelector(".plan-editor"), null);
@@ -1660,7 +1762,7 @@ test("editor is explicit, keeps drafts on return, and reveals the invalid exerci
   assert.equal(app.querySelector("input").value, "Bozza conservata");
 });
 
-test("Progress separates local completion and pending results from monthly synchronized metrics", async (t) => {
+test("Progress and Ranking separate local completion and pending results from synchronized metrics", async (t) => {
   const { w, state, app } = await mount(t, { plans: new Map([[alice, record(alice, "Piano")]]) });
   state.rows = [{
     user_id: alice, display_name: "Amico", gym_days: 2, points: 22.5,
@@ -1673,9 +1775,14 @@ test("Progress separates local completion and pending results from monthly synch
   completeSet(w);
   completeSet(w);
   click(w, "Salta");
-  navigate(w, "profile");
+  navigate(w, "progress");
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.equal(app.querySelector(".personal-progress [role=progressbar]").getAttribute("aria-valuenow"), "100");
+  assert.equal(app.querySelector(".progress-metrics"), null);
+  assert.equal(app.querySelector(".leaderboard"), null);
+  assert.match(app.querySelector(".workout-history").textContent, /1 allenamenti locali in attesa/);
+  assert.match(app.querySelector(".workout-history").textContent, /Non ancora inclusi/);
+  navigate(w, "leaderboard");
   assert.deepEqual([...app.querySelectorAll(".progress-metrics dd")].map((cell) => cell.textContent),
     ["2", "22,5", "2 settimane", "1,25×"]);
   assert.equal(app.querySelector(".progress-metrics .metric-unit").textContent, " settimane");
@@ -1683,8 +1790,8 @@ test("Progress separates local completion and pending results from monthly synch
   assert.equal(app.querySelector(".aura-metric dt").textContent, "Punti Aura");
   assert.equal(app.querySelector(".aura-metric dd").textContent, "22,5");
   assert.match(app.textContent, /ottobre 2026/);
-  assert.match(app.querySelector(".workout-history").textContent, /1 allenamenti locali in attesa/);
-  assert.match(app.querySelector(".workout-history").textContent, /Non ancora inclusi/);
+  assert.equal(app.querySelector(".workout-history"), null);
+  assert.equal(app.querySelector(".personal-progress"), null);
   assert.equal(app.querySelectorAll(".leaderboard-self").length, 1);
   assert.equal(app.querySelector("details.social-panel").open, false);
   assert.equal(w.pendingAttendance(alice).length, 1);
@@ -1693,6 +1800,7 @@ test("Progress separates local completion and pending results from monthly synch
   assert.equal(app.querySelectorAll(".aura-metric").length, 1);
   assert.equal(app.querySelector(".aura-metric dd").textContent, "35");
   assert.equal(app.querySelector(".leaderboard-self .aura-score").textContent, "35");
+  navigate(w, "progress");
   assert.equal(app.querySelector(".personal-progress [role=progressbar]").getAttribute("aria-valuenow"), "100");
 });
 
@@ -1737,7 +1845,7 @@ test("an existing plan exposes editing and blank replacement without losing the 
 test("Progress works without a plan and handles history errors and retry without inventing totals", async (t) => {
   const { w, state, app } = await mount(t);
   state.historyError = new Error("History unavailable");
-  navigate(w, "profile");
+  navigate(w, "progress");
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.match(app.querySelector(".personal-progress").textContent, /Crea un piano/);
   assert.match(app.textContent, /History unavailable/);
@@ -1760,7 +1868,7 @@ test("Progress paginates private history, preserves original definitions, and cl
     amrap_rounds: 7,
   });
   state.history = Array.from({ length: 20 }, (_, index) => historical(index));
-  navigate(w, "profile");
+  navigate(w, "progress");
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.match(app.querySelector(".workout-history").textContent, /AMRAP: 7 giri: Fatto/);
   assert.match(app.querySelector(".workout-history").textContent, /Piegamenti/);
@@ -1790,7 +1898,6 @@ async function openProfile(t, options = {}) {
 
 function profileForm(app, kind, values) {
   const form = app.querySelector(`[data-profile-form="${kind}"]`);
-  form.closest("details").open = true;
   for (const [name, value] of Object.entries(values)) form.elements.namedItem(name).value = value;
   return form;
 }
@@ -1806,7 +1913,7 @@ test("signed-in tabs omit branding and logout until Profile, while status notice
   const { w, app } = await mount(t, { plans: new Map([[alice, record(alice, "Compatta")]]) });
   assert.equal(w.document.querySelector(".app-header").hidden, true);
   assert.equal(w.document.querySelector("#account-status").hidden, true);
-  for (const view of ["plan", "workout"]) {
+  for (const view of ["plan", "progress", "workout", "leaderboard"]) {
     navigate(w, view);
     assert.equal(w.document.querySelector("#sign-out"), null);
   }
@@ -1820,7 +1927,26 @@ test("signed-in tabs omit branding and logout until Profile, while status notice
   assert.equal(app.querySelectorAll('[data-profile-form="name"]').length, 1);
   assert.equal([...app.querySelectorAll("summary")].some((summary) => summary.textContent === "Profilo nel gruppo"), false);
   assert.match(app.querySelector(".profile-summary").textContent, /alice@example.test/);
-  assert.ok(app.querySelector(".workout-history"));
+  assert.equal(app.querySelector(".workout-history"), null);
+  assert.equal(app.querySelector(".personal-performance"), null);
+  assert.equal(app.querySelector(".leaderboard"), null);
+  assert.equal(app.querySelector(".ranking-reviews"), null);
+});
+
+test("Profile shows all account-setting forms immediately without expandable components", async (t) => {
+  const { app } = await openProfile(t);
+  assert.equal(app.querySelector("details, summary"), null);
+  assert.deepEqual([...app.querySelectorAll(".profile-settings > h3")].map((heading) => heading.textContent),
+    ["Nome visualizzato", "Modifica email", "Modifica password"]);
+  assert.equal(app.querySelectorAll("[data-profile-form]").length, 3);
+  for (const form of app.querySelectorAll("[data-profile-form]")) {
+    assert.equal(form.closest("[hidden]"), null);
+    assert.equal(form.querySelector('button[type="submit"]').disabled, false);
+    for (const field of form.querySelectorAll("input")) {
+      assert.equal(field.type === "hidden", false);
+      assert.equal(field.disabled, false);
+    }
+  }
 });
 
 test("profile name editing trims, validates and refreshes standings without resetting plans or drafts", async (t) => {
@@ -1928,7 +2054,7 @@ test("pending email changes display the effective address until confirmation", a
   await until(() => !w.workoutSocial.snapshot().busy);
   assert.match(app.querySelector(".profile-summary").textContent, /alice@example.test/);
   assert.doesNotMatch(app.querySelector(".profile-summary").textContent, /pending@example.test/);
-  assert.match(app.querySelector(".profile-settings:nth-of-type(2)").textContent, /In attesa di conferma: pending@example.test/);
+  assert.match(form.closest(".profile-settings").textContent, /In attesa di conferma: pending@example.test/);
   assert.equal(form.elements["current-password"].value, "");
   state.emails.set(alice, "pending@example.test");
   state.pendingEmail = null;
@@ -2036,7 +2162,7 @@ test("leaving Profile during an update clears secrets and does not inject feedba
   assert.doesNotMatch(app.textContent, /Email aggiornata/);
   assert.equal(w.getActiveView(), "plan");
 });
-test("switching accounts clears Progress history and metrics without exposing the previous owner", async (t) => {
+test("switching accounts clears Progress history without exposing the previous owner", async (t) => {
   const { w, state, app } = await mount(t, {
     plans: new Map([[alice, record(alice, "Alice")], [bob, record(bob, "Bob")]]),
   });
@@ -2044,7 +2170,7 @@ test("switching accounts clears Progress history and metrics without exposing th
     id: "private", completed_at: "2026-10-24T12:00:00Z", revision: 1, plan_title: "Privato Alice",
     warmup: definition.warmup, session: definition.sessions[0], steps: {}, amrap_rounds: null,
   }];
-  navigate(w, "profile");
+  navigate(w, "progress");
   await until(() => !w.workoutSocial.snapshot().busy && !w.workoutLibrary.snapshot().historyLoading);
   assert.match(app.textContent, /Privato Alice/);
   state.history = [];
@@ -2054,7 +2180,7 @@ test("switching accounts clears Progress history and metrics without exposing th
   assert.doesNotMatch(app.textContent, /Privato Alice/);
   await until(() => w.workoutSocial.snapshot().accessReady && !w.workoutSocial.snapshot().busy
     && !w.workoutLibrary.snapshot().historyLoading);
-  assert.equal(w.getActiveView(), "profile");
+  assert.equal(w.getActiveView(), "progress");
   assert.doesNotMatch(app.textContent, /Privato Alice/);
   assert.match(app.textContent, /Nessun allenamento sincronizzato/);
 });
@@ -2165,7 +2291,7 @@ test("notes appear safely in previous results, private history and performance d
     results: [{ id: "notes-history", series_key: seriesKey, completed_at: "2026-10-01Z", sets: [{ set: 1, weightKg: 20, reps: 8, notes }], max_weight: 20, max_reps: 8 }],
     more: false,
   };
-  navigate(w, "profile");
+  navigate(w, "progress");
   await until(() => app.querySelector(".workout-history").textContent.includes(notes)
     && app.querySelector(".performance-table")?.textContent.includes(notes));
   assert.equal(app.querySelector(".workout-history img"), null);
@@ -2260,7 +2386,7 @@ test("private performance displays actual set comparisons and full-history bests
       {id:"old",series_key:key,completed_at:"2026-10-13Z",sets:[{set:1,weightKg:20,reps:8}],max_weight:20,max_reps:8,max_seconds:null},
     ],more:true,
   };
-  navigate(w,"profile");
+  navigate(w,"progress");
   await until(() => Boolean(app.querySelector(".performance-chart")));
   assert.match(app.querySelector(".personal-performance").textContent,/\+2 kg/);
   assert.match(app.querySelector(".personal-performance").textContent,/100 kg/);
@@ -2285,7 +2411,7 @@ test("late performance responses cannot expose the previous account's measuremen
   const releases = [];
   state.beforeRpc = (name) => name === "workout_performance" && state.id === alice
     ? new Promise((resolve) => releases.push(resolve)) : undefined;
-  navigate(w,"profile");
+  navigate(w,"progress");
   await until(() => releases.length > 0);
   state.performance = {series:[],results:[],more:false};
   state.id = bob;

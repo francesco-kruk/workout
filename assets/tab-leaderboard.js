@@ -1,14 +1,21 @@
-function renderLeaderboard(container, { embedded = false, showProfile = true } = {}) {
+function renderLeaderboard(container) {
   const social = window.workoutSocial;
-  container.replaceChildren(textEl(embedded ? "h3" : "h2", "Classifica"));
+  container.replaceChildren(
+    textEl("p", "La costanza fa squadra", "cycle-label"),
+    textEl("h2", "Classifica"),
+    textEl("p", "Ogni allenamento conta. Confronta i Punti Aura del mese e sostieni il tuo gruppo.", "view-description")
+  );
+  const overview = document.createElement("section");
+  overview.className = "social-panel ranking-overview";
+  overview.appendChild(textEl("p", "Il tuo mese", "cycle-label"));
+  const month = textEl("h3", "");
+  const monthly = document.createElement("div");
   const status = textEl("p", "", "social-status");
   status.setAttribute("role", "status");
   const refresh = createButton("Aggiorna / riprova", "btn btn-secondary");
   refresh.addEventListener("click", () => { void social.refresh(); });
   const standings = document.createElement("section");
-  standings.className = "social-panel";
-  const month = textEl("h3", "");
-  const personal = textEl("p", "", "view-description");
+  standings.className = "social-panel ranking-standings";
   const updated = textEl("p", "", "view-description");
   const wrap = document.createElement("div");
   wrap.className = "leaderboard-scroll";
@@ -26,22 +33,10 @@ function renderLeaderboard(container, { embedded = false, showProfile = true } =
   const body = document.createElement("tbody");
   table.append(head, body);
   wrap.appendChild(table);
-  standings.append(month, personal, updated, wrap);
-  const account = document.createElement("form");
-  account.className = "social-panel";
-  const label = textEl("label", "Il tuo nome in classifica");
-  const name = document.createElement("input");
-  name.required = true;
-  name.maxLength = 40;
-  name.autocomplete = "nickname";
-  label.appendChild(name);
-  const save = createButton("Salva nome", "btn btn-secondary");
-  save.type = "submit";
-  account.append(label, save);
-  account.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void social.saveName(name.value);
-  });
+  standings.append(textEl("h3", "Il gruppo"), wrap);
+  overview.append(month, monthly, updated, status, refresh);
+  const manual = document.createElement("section");
+  manual.className = "social-panel ranking-reviews";
   const rules = document.createElement("details");
   rules.className = "social-panel";
   rules.append(textEl("summary", "Regole e sincronizzazione"), textEl("p",
@@ -56,11 +51,8 @@ function renderLeaderboard(container, { embedded = false, showProfile = true } =
     "parità significa rifiuto. I punti usano la data del completamento, non quella del voto. " +
     "Accedi prima di allenarti e non cancellare i dati del browser prima della sincronizzazione. " +
     "Pesi, ripetizioni e risultati individuali restano privati e non influenzano i punti.", "view-description"));
-  container.append(status, refresh, standings);
-  if (showProfile) container.appendChild(account);
-  container.appendChild(rules);
-  let displayedUser;
-  let displayedName;
+  container.append(overview, standings, manual, rules);
+  const cleanupManual = renderManualWorkouts(manual);
   function update() {
     const state = social.snapshot();
     let pending = 0;
@@ -76,41 +68,62 @@ function renderLeaderboard(container, { embedded = false, showProfile = true } =
       : !state.ready ? "Connessione al gruppo..."
         : pending ? `${pending} presenze in attesa di sincronizzazione per questo account.`
           : state.notice || (state.member ? "Presenze sincronizzate." : "Account in attesa di approvazione."));
-    standings.hidden = account.hidden = !state.member;
-    refresh.disabled = save.disabled = state.busy;
-    if (state.user?.id !== displayedUser || state.member?.display_name !== displayedName) {
-      name.value = state.member?.display_name || "";
-      displayedUser = state.user?.id;
-      displayedName = state.member?.display_name;
-    }
+    standings.hidden = !state.member;
+    refresh.disabled = state.busy;
     month.textContent = new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric", timeZone: "Europe/Rome" })
       .format(state.rows[0]?.month_start ? new Date(`${state.rows[0].month_start}T12:00:00Z`) : new Date());
     const own = state.rows.find((row) => row.user_id === state.user?.id);
-    personal.textContent = own ? rankingSummary(own) : "Nessuna classifica caricata.";
+    monthly.replaceChildren();
+    if (own) {
+      const metrics = document.createElement("dl");
+      metrics.className = "progress-metrics ranking-metrics";
+      for (const [label, value, unit, className] of [
+        ["Giorni di allenamento", own.gym_days],
+        ["Punti Aura", formatScore(own.points), null, "aura-metric"],
+        ["Sequenza settimanale", own.weekly_streak || 0, Number(own.weekly_streak) === 1 ? "settimana" : "settimane"],
+        ["Moltiplicatore dell'ultima settimana attiva", `${formatScore(own.multiplier)}×`],
+      ]) {
+        const metric = document.createElement("div");
+        if (className) metric.className = className;
+        const result = textEl("dd", String(value));
+        if (unit) result.appendChild(textEl("span", ` ${unit}`, "metric-unit"));
+        metric.append(textEl("dt", label), result);
+        metrics.appendChild(metric);
+      }
+      monthly.append(metrics, textEl("p", "Dati sincronizzati · giorni e Punti Aura del mese. Il moltiplicatore si applica subito; la sequenza settimanale continua tra mesi.", "view-description"));
+    } else {
+      monthly.appendChild(textEl("p", !state.configured
+        ? "Le statistiche mensili richiedono l'accesso al gruppo."
+        : "Statistiche mensili non ancora disponibili. Aggiorna per caricare i dati del gruppo.", "view-description"));
+    }
     updated.textContent = state.updatedAt
       ? `Ultimo aggiornamento: ${new Date(state.updatedAt).toLocaleString("it-IT")}. Solo presenze sincronizzate.`
       : "Aggiorna per caricare i Punti Aura del gruppo.";
     body.replaceChildren();
     for (const row of state.rows) {
       const tr = document.createElement("tr");
-      if (row.user_id === state.user?.id) tr.className = "leaderboard-self";
+      if (row.user_id === state.user?.id) {
+        tr.className = "leaderboard-self";
+        tr.setAttribute("aria-label", "La tua posizione");
+      }
       for (const [value, className] of [[row.position], [row.display_name], [formatScore(row.points), "aura-score"], [row.gym_days]]) {
         tr.appendChild(textEl("td", String(value), className));
       }
       body.appendChild(tr);
     }
+    if (!state.rows.length) {
+      const empty = document.createElement("tr");
+      const cell = textEl("td", "Nessuna classifica caricata.");
+      cell.colSpan = 4;
+      empty.appendChild(cell);
+      body.appendChild(empty);
+    }
   }
   window.addEventListener("workout-social-change", update);
   update();
   void social.refresh();
-  return () => window.removeEventListener("workout-social-change", update);
-}
-
-function formatScore(value) {
-  return Number(value).toLocaleString("it-IT", { maximumFractionDigits: 2 });
-}
-
-function rankingSummary(row) {
-  const weeks = Number(row.weekly_streak || 0);
-  return `Sequenza settimanale: ${weeks} ${weeks === 1 ? "settimana" : "settimane"} · moltiplicatore dell'ultima settimana attiva: ${formatScore(row.multiplier)}×.`;
+  return () => {
+    window.removeEventListener("workout-social-change", update);
+    cleanupManual();
+  };
 }

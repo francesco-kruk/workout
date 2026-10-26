@@ -54,6 +54,10 @@ function boot() {
       cleanupView = renderPersonalPlan(app);
     } else if (activeView === "profile") {
       cleanupView = renderProfile(app);
+    } else if (activeView === "progress") {
+      cleanupView = renderProgress(app);
+    } else if (activeView === "leaderboard") {
+      cleanupView = renderLeaderboard(app);
     } else if (!library.plan) {
       app.replaceChildren(
         textEl("h2", "La tua scheda"),
