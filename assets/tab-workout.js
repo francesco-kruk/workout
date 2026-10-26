@@ -469,9 +469,22 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       if (!active) return;
       current = getProgress(sessionId).exerciseTimer;
       if (current && current.deadline !== null && current.deadline <= Date.now()) {
-        save({ ...current, deadline: null, remainingMilliseconds: 0 });
-        stopTimer();
-        if (notify) window.workoutAudio.play();
+        if (current.phase === "setup") {
+          const overtime = Date.now() - current.deadline;
+          const remainingMilliseconds = Math.max(0, current.durationSeconds * 1000 - overtime);
+          save({
+            ...current,
+            phase: "exercise",
+            remainingMilliseconds,
+            deadline: remainingMilliseconds > 0 ? Date.now() + remainingMilliseconds : null,
+          });
+          if (remainingMilliseconds === 0) stopTimer();
+          if (notify) window.workoutAudio.play();
+        } else {
+          save({ ...current, deadline: null, remainingMilliseconds: 0 });
+          stopTimer();
+          if (notify) window.workoutAudio.play();
+        }
       }
       const running = current?.deadline != null;
       const finished = current?.remainingMilliseconds === 0;
@@ -479,7 +492,9 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         ? current.deadline === null ? current.remainingMilliseconds : Math.max(0, current.deadline - Date.now())
         : validDuration() ? duration.valueAsNumber * 1000 : 0;
       display.textContent = formatTime(Math.ceil(remaining / 1000));
-      status.textContent = finished ? "Tempo terminato" : running ? "Timer in corso" : current ? "Timer in pausa" : "Timer pronto";
+      status.textContent = finished ? "Tempo terminato"
+        : current?.phase === "setup" ? running ? "Preparati" : "Preparazione in pausa"
+          : running ? "Timer in corso" : current ? "Timer in pausa" : "Timer pronto";
       duration.disabled = Boolean(current);
       toggle.textContent = finished ? "Tempo terminato" : running ? "Pausa" : current ? "Riprendi" : "Avvia timer";
       toggle.disabled = finished || (!current && !validDuration());
@@ -505,10 +520,13 @@ function renderWorkout(container, plan, onSessionAdvanced) {
         stopTimer();
       } else {
         if (!current && !validDuration()) return;
-        const milliseconds = current?.remainingMilliseconds ?? duration.valueAsNumber * 1000;
+        const phase = current?.phase ?? "setup";
+        const milliseconds = current?.remainingMilliseconds
+          ?? (phase === "setup" ? window.WORKOUT_EXERCISE_SETUP_SECONDS : duration.valueAsNumber) * 1000;
         save({
           stepKey: step.key,
           durationSeconds: current?.durationSeconds ?? duration.valueAsNumber,
+          phase,
           remainingMilliseconds: milliseconds,
           deadline: Date.now() + milliseconds,
         });
@@ -674,8 +692,10 @@ function renderWorkout(container, plan, onSessionAdvanced) {
       applyWorkoutProgress(plan, sessionId, () => {
         setStepStatus(sessionId, step.key, "completed");
       });
-      const nextIndex = getSessionSummary(plan, plan.sessions.find((day) => day.id === sessionId)).currentIndex;
-      if (step.type === "set" && nextIndex >= 0) {
+      const nextSummary = getSessionSummary(plan, plan.sessions.find((day) => day.id === sessionId));
+      const nextStep = nextSummary.steps[nextSummary.currentIndex];
+      if (step.type === "set" && nextStep?.type === "set"
+        && nextStep.exercise.id === step.exercise.id) {
         const durationSeconds = step.exercise.rest;
         if (durationSeconds > 0) {
           updateRestTimer(sessionId, {

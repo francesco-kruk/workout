@@ -2511,7 +2511,7 @@ test("rest replaces the exercise until expiry, preserves pause/resume, and clean
   assert.match(app.querySelector(".focus-kicker").textContent, /serie 3 di 3/);
 });
 
-test("rest identifies the completed exercise at transitions and counts only completed sets", async (t) => {
+test("rest identifies completed sets and is skipped when advancing to another exercise", async (t) => {
   const original = record(alice, "Contesto recupero");
   original.definition.sessions[0].exercises.push({
     id: "pushup", name: "Piegamenti", sets: 1, target: "8", rest: 0, measurementMode: "reps", usesWeight: false,
@@ -2529,11 +2529,30 @@ test("rest identifies the completed exercise at transitions and counts only comp
   input(w, "Peso (kg)", "20");
   input(w, "Ripetizioni", "8");
   click(w, "Serie completata");
-  assert.equal(app.querySelector(".rest-timer h3").textContent, "Squat");
-  assert.match(app.querySelector(".rest-timer").textContent, /2 di 3 serie completate/);
-  assert.doesNotMatch(app.querySelector(".rest-timer").textContent, /Piegamenti/);
-  click(w, "Salta recupero");
+  assert.equal(w.getProgress("strength").restTimer, null);
+  assert.equal(app.querySelector(".rest-timer"), null);
   assert.equal(app.querySelector(".focus-card h3").textContent, "Piegamenti");
+});
+
+test("completing an exercise's last set skips rest and opens the next exercise", async (t) => {
+  const original = record(alice, "Transizione esercizi");
+  Object.assign(original.definition.sessions[0].exercises[0], {
+    sets: 1, optionalSets: 0, usesWeight: false,
+  });
+  original.definition.sessions[0].exercises.push({
+    id: "pushup", name: "Piegamenti", sets: 1, target: "8 ripetizioni", rest: 60,
+    measurementMode: "reps", usesWeight: false,
+  });
+  const { w, app } = await mount(t, { plans: new Map([[alice, original]]) });
+  const clock = controlWorkoutClock(w);
+  navigate(w, "workout");
+  click(w, "Riscaldamento completato");
+  input(w, "Ripetizioni", "8");
+  click(w, "Serie completata");
+  assert.equal(w.getProgress("strength").restTimer, null);
+  assert.equal(app.querySelector(".rest-timer"), null);
+  assert.equal(app.querySelector(".focus-card h3").textContent, "Piegamenti");
+  assert.equal(clock.intervals.size, 0);
 });
 
 test("rest persists across reload, expires on visibility return, and quick navigation clears it", async (t) => {
@@ -2665,13 +2684,14 @@ test("exercise timer parses only unambiguous bounded time targets and restores l
   assert.equal(w.getProgress("strength").exerciseTimer, null);
   w.updateExerciseTimer("strength", { stepKey: "squat:0", durationSeconds: 25, remainingMilliseconds: 25000, deadline: null });
   assert.equal(w.getProgress("strength").exerciseTimer.stepKey, "squat:0");
+  assert.equal(w.getProgress("strength").exerciseTimer.phase, "exercise");
   w.updateSetResult("strength", "squat:0", { seconds: "12" });
   assert.equal(w.getProgress("strength").exerciseTimer.durationSeconds, 25);
   assert.equal(w.normalizeExerciseTimer({ ...w.getProgress("strength").exerciseTimer, runId: "wrong" }, w.getProgress("strength").runId), null);
   assert.throws(() => w.updateExerciseTimer("strength", { stepKey: "squat:0", durationSeconds: 0, remainingMilliseconds: 0, deadline: null }));
 });
 
-test("exercise timer starts manually, beeps exactly once and never enters results or advances", async (t) => {
+test("exercise timer runs a five-second setup countdown before the full duration", async (t) => {
   const { w, app } = await mount(t, { plans: new Map([[alice, timedRecord()]]) });
   const audio = fakeAudio(w);
   const clock = controlWorkoutClock(w);
@@ -2685,10 +2705,18 @@ test("exercise timer starts manually, beeps exactly once and never enters result
   await Promise.resolve();
   assert.equal(audio.contexts, 1);
   assert.equal(app.querySelector(".exercise-timer input").disabled, true);
+  assert.equal(w.getProgress("strength").exerciseTimer.phase, "setup");
+  assert.equal(app.querySelector(".timer-value").textContent, "00:05");
+  assert.match(app.querySelector(".timer-status").textContent, /Preparati/);
+  clock.advance(5000);
+  assert.equal(w.getProgress("strength").exerciseTimer.phase, "exercise");
+  assert.equal(w.getProgress("strength").exerciseTimer.remainingMilliseconds, 25000);
+  assert.equal(app.querySelector(".timer-value").textContent, "00:25");
+  assert.equal(audio.beeps, 1);
   clock.advance(24000);
   assert.equal(app.querySelector(".timer-value").textContent, "00:01");
   clock.advance(1000);
-  assert.equal(audio.beeps, 1);
+  assert.equal(audio.beeps, 2);
   assert.equal(clock.intervals.size, 0);
   assert.match(app.querySelector(".exercise-timer").textContent, /Tempo terminato/);
   assert.equal(app.querySelector("[data-actual-field]").value, "");
@@ -2698,7 +2726,7 @@ test("exercise timer starts manually, beeps exactly once and never enters result
   Object.defineProperty(w.document, "hidden", { value: false, configurable: true });
   w.document.dispatchEvent(new w.Event("visibilitychange"));
   clock.advance(25000);
-  assert.equal(audio.beeps, 1);
+  assert.equal(audio.beeps, 2);
   input(w, "Durata (secondi)", "23");
   click(w, "Serie completata");
   assert.equal(w.getProgress("strength").results["squat:0"].seconds, "23");
@@ -2725,6 +2753,14 @@ test("exercise timer validates editable seconds, pauses, resumes and resets with
   input(w, "Timer: durata (secondi)", "30");
   click(w, "Avvia timer");
   await Promise.resolve();
+  clock.advance(2000);
+  click(w, "Pausa");
+  assert.equal(w.getProgress("strength").exerciseTimer.phase, "setup");
+  assert.equal(w.getProgress("strength").exerciseTimer.remainingMilliseconds, 3000);
+  clock.advance(60000);
+  click(w, "Riprendi");
+  clock.advance(3000);
+  assert.equal(w.getProgress("strength").exerciseTimer.phase, "exercise");
   clock.advance(10250);
   click(w, "Pausa");
   assert.equal(w.getProgress("strength").exerciseTimer.remainingMilliseconds, 19750);
@@ -2743,7 +2779,7 @@ test("exercise timer validates editable seconds, pauses, resumes and resets with
   assert.equal(app.querySelector(".timer-value").textContent, "00:30");
   assert.equal(app.querySelector(".exercise-timer input").disabled, false);
   assert.equal(w.getProgress("strength").exerciseTimer, null);
-  assert.equal(audio.beeps, 0);
+  assert.equal(audio.beeps, 1);
 });
 
 test("exercise timer catches up on visibility return and respects mute and audio failures", async (t) => {
@@ -2757,7 +2793,7 @@ test("exercise timer catches up on visibility return and respects mute and audio
     click(w, "Avvia timer");
     await Promise.resolve();
     await Promise.resolve();
-    clock.advance(15000, false);
+    clock.advance(20000, false);
     Object.defineProperty(w.document, "hidden", { value: false, configurable: true });
     w.document.dispatchEvent(new w.Event("visibilitychange"));
     assert.equal(w.getProgress("strength").exerciseTimer.remainingMilliseconds, 0);
@@ -2771,6 +2807,32 @@ test("exercise timer catches up on visibility return and respects mute and audio
   }
 });
 
+test("exercise timer preserves a paused setup countdown across reload", async (t) => {
+  const plans = new Map([[alice, timedRecord()]]);
+  const first = await mount(t, { plans });
+  const firstClock = controlWorkoutClock(first.w);
+  navigate(first.w, "workout");
+  click(first.w, "Riscaldamento completato");
+  click(first.w, "Avvia timer");
+  firstClock.advance(2000);
+  click(first.w, "Pausa");
+  assert.equal(first.w.getProgress("strength").exerciseTimer.phase, "setup");
+  assert.equal(first.w.getProgress("strength").exerciseTimer.remainingMilliseconds, 3000);
+
+  const restored = await mount(t, {
+    plans, storage: snapshotStorage(first.w),
+    beforeBoot: (w) => { w.Date.now = () => first.w.Date.now(); },
+  });
+  assert.equal(restored.w.getProgress("strength").exerciseTimer.phase, "setup");
+  assert.equal(restored.w.getProgress("strength").exerciseTimer.deadline, null);
+  assert.equal(restored.app.querySelector(".timer-value").textContent, "00:03");
+  const restoredClock = controlWorkoutClock(restored.w);
+  click(restored.w, "Riprendi");
+  restoredClock.advance(3000);
+  assert.equal(restored.w.getProgress("strength").exerciseTimer.phase, "exercise");
+  assert.equal(restored.w.getProgress("strength").exerciseTimer.remainingMilliseconds, 25000);
+});
+
 test("exercise timer restores running and paused deadlines and never plays a stale reload alert", async (t) => {
   const plans = new Map([[alice, timedRecord()]]);
   const first = await mount(t, { plans });
@@ -2778,12 +2840,13 @@ test("exercise timer restores running and paused deadlines and never plays a sta
   navigate(first.w, "workout");
   click(first.w, "Riscaldamento completato");
   click(first.w, "Avvia timer");
-  firstClock.advance(5000);
+  firstClock.advance(10000);
   const second = await mount(t, {
     plans, storage: snapshotStorage(first.w),
     beforeBoot: (w) => { w.Date.now = () => first.w.Date.now(); },
   });
   assert.ok(second.w.getProgress("strength").exerciseTimer.deadline);
+  assert.equal(second.w.getProgress("strength").exerciseTimer.phase, "exercise");
   assert.equal(second.app.querySelector(".exercise-timer input").value, "25");
   assert.equal(second.app.querySelector(".timer-value").textContent, "00:20");
   click(second.w, "Pausa");
