@@ -126,8 +126,14 @@ window.workoutSocial = (() => {
               p_measurements: receipt.workout.measurements || {},
               p_amrap_extra_reps: receipt.workout.amrapExtraReps ?? null,
             });
+            if (receipt.workout.payloadVersion === 3) {
+              delete args.p_amrap_rounds;
+              delete args.p_amrap_extra_reps;
+              args.p_block_results = receipt.workout.blockResults;
+            }
           }
-          const result = await client.rpc(receipt.workout ? "submit_workout_result" : "submit_gym_day", args);
+          const result = await client.rpc(receipt.workout?.payloadVersion === 3
+            ? "submit_workout_result_v3" : receipt.workout ? "submit_workout_result" : "submit_gym_day", args);
           if (result.error?.code === "22023") {
             invalidEvent = new Error(`Presenza ${receipt.id}: ${result.error.message}`);
             console.error("Presenza rifiutata; conservata per verifica.", invalidEvent);
@@ -457,13 +463,14 @@ window.workoutSocial = (() => {
     return data;
   }
 
-  async function fetchPrevious(sessionId, exerciseId = null) {
+  async function fetchPrevious(sessionId, exerciseId = null, blockId = null) {
     requireMember();
     const revision = identityRevision;
     const record = window.workoutLibrary.snapshot().record;
     if (!record) return null;
-    const data = check(await client.rpc("workout_previous", {
+    const data = check(await client.rpc(record.definition.version === 3 ? "workout_previous_v3" : "workout_previous", {
       p_plan_version_id: record.id, p_session_id: sessionId, p_exercise_id: exerciseId,
+      ...(record.definition.version === 3 ? { p_block_id: blockId } : {}),
     }));
     if (revision !== identityRevision) throw new Error("Account cambiato.");
     return data;

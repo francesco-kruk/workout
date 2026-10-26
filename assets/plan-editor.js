@@ -10,6 +10,7 @@ function renderPersonalPlan(container) {
   let screen = "details";
   let selectedDay = null;
   let selectedExercise = null;
+  let selectedBlock = null;
   let message = "";
   let hasError = false;
   let saving = false;
@@ -78,6 +79,7 @@ function renderPersonalPlan(container) {
       mode = method;
       screen = "details";
       selectedExercise = null;
+      selectedBlock = null;
       if (method === "manual") {
         draft = library.writeDraft(operation === "edit" ? structuredClone(baseRecord.definition) : newWorkoutPlan(), baseRecord?.id || null);
         selectedDay = draft.definition.sessions[0].id;
@@ -265,6 +267,10 @@ function renderPersonalPlan(container) {
       link.download = "modello-allenamento.csv";
       parent.appendChild(link);
     }
+    const mixedTemplate = textEl("a", "Scarica modello CSV con blocchi misti", "btn btn-secondary");
+    mixedTemplate.href = "data/workout-blocks-template.csv";
+    mixedTemplate.download = "modello-blocchi-misti.csv";
+    parent.appendChild(mixedTemplate);
     const label = textEl("label", "Carica scheda CSV");
     const input = document.createElement("input");
     input.type = "file";
@@ -302,7 +308,10 @@ function renderPersonalPlan(container) {
       textEl("p", "Righe plan, warmup, day ed exercise. day_key collega gli esercizi alla giornata; l'ordine delle righe stabilisce l'ordine degli elementi. Non cambiare le intestazioni."),
       textEl("p", "Per mantenere i confronti durante una modifica, non cambiare source_version_id, tracking_id e row_id. Lascia row_id vuoto per un nuovo elemento, anche quando copi una riga. Un vecchio CSV senza metadati inizia nuovi confronti."),
       textEl("p", "Standard: sets da 1 a 30, optional_sets da 0 a 30, rest_seconds obbligatorio da 0 a 3600 (0 = nessun recupero); measurement_mode reps/seconds e uses_weight true/false. AMRAP: duration_minutes da 1 a 180; lascia vuoti serie e tracciamento individuali."),
-      textEl("p", "Da 1 a 30 giornate, da 1 a 50 esercizi per giornata, da 0 a 50 riscaldamenti; massimo 1500 step per giornata, 4000 caratteri per testo, 200000 per piano, 1600 righe e 800000 byte per file."),
+      textEl("p", "CSV versione 3: aggiunge righe block e minute. day_key, block_key e minute_key sono chiavi univoche nel file; ogni riga figlia indica anche la giornata e il blocco. Puoi scrivere i riferimenti prima o dopo i genitori. block_type: standard, superset, amrap o emom; name è il nome del blocco. Lascia session_type vuoto."),
+      textEl("p", "Superserie: rounds 1–30, optional_rounds 0–30 e rest_seconds 0–3600 solo sulla riga block; almeno due esercizi, senza serie o recupero interno. AMRAP: duration_minutes 1–180 sul blocco, nessuna serie, recupero o impostazione di tracciamento sugli esercizi. EMOM: rounds 1–180 sul blocco, righe minute da 60 secondi con uno o più esercizi; massimo 180 minuti totali e 50 slot per giornata. Gli esercizi EMOM non hanno serie né recupero."),
+      textEl("p", "Non spostare un row_id sotto un altro genitore o formato: per spostamenti incompatibili lascia vuoti gli ID dell'elemento e dei suoi figli. legacy_day_id è riservato alle esportazioni di AMRAP convertiti: non compilarlo a mano."),
+      textEl("p", "Da 1 a 30 giornate, da 1 a 50 blocchi (versione 3) e da 1 a 50 esercizi per giornata, da 0 a 50 riscaldamenti; massimo 1500 step per giornata, 4000 caratteri per testo, 200000 per piano, 1600 righe e 800000 byte per file."),
       textEl("p", "CSV UTF-8 con virgola o punto e virgola. Usa virgolette per separatori e a capo. Importa le colonne testuali come testo, non formule; l'apostrofo protettivo dell'esportazione viene rimosso in importazione."));
     parent.appendChild(help);
   }
@@ -410,6 +419,7 @@ function renderPersonalPlan(container) {
 
   function renderEditor() {
     if (!draft) return;
+    if (draft.definition.version === 3) { renderBlockEditor(); return; }
     const definition = draft.definition;
     const form = document.createElement("form");
     form.className = "plan-editor social-panel";
@@ -497,6 +507,7 @@ function renderPersonalPlan(container) {
     form.appendChild(navigation);
     const details = panel("details", "Il titolo del piano");
     field(details, "Titolo della scheda", definition, "title", { required: true });
+    details.appendChild(button("Usa blocchi misti", () => convertToBlocks(selectedDay)));
     if (operation === "create") details.appendChild(button("Personalizza esempio", () => {
       const template = library.template();
       if (!template) { showError(new Error("Piano di esempio non disponibile.")); return; }
@@ -562,6 +573,7 @@ function renderPersonalPlan(container) {
       });
       typeLabel.appendChild(type);
       dayPanel.appendChild(typeLabel);
+      dayPanel.appendChild(button("Aggiungi blocchi / Usa blocchi misti", () => convertToBlocks(day.id)));
       if (day.type === "amrap") {
         const duration = field(dayPanel, "Durata (es. 20 minuti)", day, "duration", { required: true });
         duration.pattern = "(?:[1-9]|[1-9][0-9]|1[0-7][0-9]|180)(?: (?:min|minuti))?";
@@ -647,6 +659,268 @@ function renderPersonalPlan(container) {
     panels.find((item) => !item.hidden)?.querySelector("h3")?.focus();
   }
 
+  function convertToBlocks(dayId) {
+    try {
+      assertOwner();
+      draft.definition = upgradeWorkoutPlan(draft.definition);
+      persist();
+      selectedDay = dayId || draft.definition.sessions[0].id;
+      selectedBlock = null;
+      screen = "day";
+      render();
+    } catch (error) { showError(error); }
+  }
+
+  function renderBlockEditor() {
+    const definition = draft.definition;
+    const form = document.createElement("form");
+    form.className = "plan-editor social-panel";
+    form.noValidate = true;
+    const panels = [];
+    const go = (next, dayId = selectedDay, blockId = selectedBlock) => {
+      screen = next;
+      selectedDay = dayId;
+      selectedBlock = blockId;
+      render();
+    };
+    const update = (action, next = screen, dayId = selectedDay, blockId = selectedBlock) => {
+      try { action(); persist(); go(next, dayId, blockId); } catch (error) { showError(error); }
+    };
+    function panel(value, title, id = "") {
+      const section = document.createElement("section");
+      section.className = "wizard-panel";
+      section.dataset.screen = value;
+      section.dataset.item = id;
+      const heading = textEl("h3", title);
+      heading.tabIndex = -1;
+      section.appendChild(heading);
+      panels.push(section);
+      form.appendChild(section);
+      return section;
+    }
+    function show(value, id) {
+      screen = value;
+      if (value === "day") selectedDay = id;
+      if (value === "block") {
+        selectedBlock = id;
+        selectedDay = definition.sessions.find((day) => day.blocks.some((block) => block.id === id))?.id;
+      }
+      for (const section of panels) section.hidden = section.dataset.screen !== value
+        || (value === "day" && section.dataset.item !== selectedDay)
+        || (value === "block" && section.dataset.item !== selectedBlock);
+      for (const control of navigation.querySelectorAll("button")) {
+        control.setAttribute("aria-current", control.dataset.screen === (["day", "block"].includes(value) ? "days" : value) ? "step" : "false");
+      }
+    }
+    function checkFields(onlyVisible = false) {
+      const invalid = [...form.querySelectorAll("input, select, textarea")]
+        .find((input) => (!onlyVisible || !input.closest(".wizard-panel").hidden) && !input.validity.valid);
+      if (!invalid) return true;
+      const section = invalid.closest(".wizard-panel");
+      show(section.dataset.screen, section.dataset.item);
+      for (let parent = invalid.parentElement; parent && parent !== form; parent = parent.parentElement) {
+        if (parent.tagName === "DETAILS") parent.open = true;
+      }
+      invalid.reportValidity();
+      invalid.focus();
+      return false;
+    }
+    function review() {
+      if (!checkFields()) return;
+      const errors = validateWorkoutPlan(definition);
+      if (errors.length) { showError(new Error(errors.join("\n"))); return; }
+      go("review");
+    }
+    const exerciseCount = (day) => day.blocks.reduce((count, block) => count + getBlockExercises(block).length, 0);
+    const minuteCount = (day) => day.blocks.reduce((count, block) => count + (block.type === "emom" ? block.minutes.length : 0), 0);
+    function addBlockControls(parent, day) {
+      const controls = document.createElement("div");
+      controls.className = "editor-actions";
+      for (const type of ["standard", "superset", "amrap", "emom"]) {
+        const block = newWorkoutBlock(type);
+        const add = button(`Aggiungi blocco ${workoutBlockLabel(block)}`, () => update(() => day.blocks.push(block), "block", day.id, block.id));
+        add.disabled = day.blocks.length >= 50 || exerciseCount(day) + getBlockExercises(block).length > 50
+          || (type === "emom" && minuteCount(day) >= 50);
+        controls.appendChild(add);
+      }
+      parent.appendChild(controls);
+    }
+    function trackingFields(parent, exercise) {
+      const tracking = getExerciseTracking(exercise);
+      const label = textEl("label", "Tracciamento");
+      const select = document.createElement("select");
+      for (const [value, name] of [["reps", "Ripetizioni"], ["seconds", "Durata (secondi)"]]) {
+        const option = textEl("option", name);
+        option.value = value;
+        option.selected = tracking.mode === value;
+        select.appendChild(option);
+      }
+      select.addEventListener("change", () => {
+        exercise.measurementMode = select.value;
+        try { persist(); } catch (error) { showError(error); }
+      });
+      label.appendChild(select);
+      const weightLabel = textEl("label", "Prevede un peso");
+      weightLabel.className = "tracking-weight";
+      const weight = document.createElement("input");
+      weight.type = "checkbox";
+      weight.checked = tracking.usesWeight;
+      weight.addEventListener("change", () => {
+        exercise.usesWeight = weight.checked;
+        try { persist(); } catch (error) { showError(error); }
+      });
+      weightLabel.appendChild(weight);
+      parent.append(label, weightLabel);
+    }
+    function exerciseFields(parent, day, block, items) {
+      items.forEach((exercise, index) => {
+        const group = document.createElement("fieldset");
+        group.dataset.exercise = exercise.id;
+        group.appendChild(textEl("legend", `Esercizio ${index + 1}`));
+        field(group, "Nome esercizio", exercise, "name", { required: true });
+        field(group, "Obiettivo / ripetizioni", exercise, "target", { required: true });
+        if (block.type === "standard") {
+          field(group, "Serie obbligatorie", exercise, "sets", { type: "number", min: 1, max: 30, required: true });
+          field(group, "Serie opzionali", exercise, "optionalSets", { type: "number", min: 0, max: 30 });
+          field(group, "Recupero (secondi)", exercise, "rest", { type: "number", min: 0, max: 3600, required: true });
+        }
+        if (block.type !== "amrap") trackingFields(group, exercise);
+        field(group, "Istruzioni esercizio", exercise, "instructions", { type: "textarea" });
+        collectionControls(group, items, index, block.type === "superset" ? 2 : 1);
+        parent.appendChild(group);
+      });
+      const add = button("Aggiungi esercizio", () => update(() => items.push(newWorkoutBlockExercise(block.type))));
+      add.disabled = exerciseCount(day) >= 50;
+      parent.appendChild(add);
+    }
+    back = () => {
+      if (screen === "details") choose(operation);
+      else if (screen === "block") go("day");
+      else if (screen === "day" || screen === "review") go("days");
+      else go("details");
+    };
+    const navigation = document.createElement("nav");
+    navigation.className = "editor-actions wizard-navigation";
+    navigation.setAttribute("aria-label", "Passaggi del piano");
+    for (const [value, label] of [["details", "1. Dettagli"], ["days", "2. Giornate"], ["review", "3. Rivedi piano"]]) {
+      const control = button(label, () => value === "review" ? review() : go(value));
+      control.dataset.screen = value;
+      navigation.appendChild(control);
+    }
+    form.appendChild(navigation);
+    const details = panel("details", "Il titolo del piano");
+    details.appendChild(textEl("p", "Blocchi misti: Serie, Superserie, AMRAP ed EMOM nella stessa giornata. La conversione riguarda solo questa bozza fino a Salva piano.", "view-description"));
+    field(details, "Titolo della scheda", definition, "title", { required: true });
+    const warmup = editorSection("Riscaldamento comune (facoltativo)", "warmup");
+    definition.warmup.forEach((item, index) => {
+      const group = document.createElement("fieldset");
+      group.appendChild(textEl("legend", `Riscaldamento ${index + 1}`));
+      field(group, "Nome", item, "name", { required: true });
+      field(group, "Obiettivo", item, "target", { required: true });
+      field(group, "Istruzioni", item, "instructions", { type: "textarea" });
+      collectionControls(group, definition.warmup, index, 0);
+      warmup.appendChild(group);
+    });
+    const addWarmup = button("Aggiungi riscaldamento", () => {
+      expandedSections.set("warmup", true);
+      update(() => definition.warmup.push(newWorkoutItem()));
+    });
+    addWarmup.disabled = definition.warmup.length >= 50;
+    warmup.appendChild(addWarmup);
+    details.append(warmup, button("Continua alle giornate", () => { if (checkFields(true)) go("day"); }, "btn btn-primary"));
+    const days = panel("days", "Giornate e blocchi");
+    definition.sessions.forEach((day, dayIndex) => {
+      const overview = document.createElement("section");
+      overview.className = "overview-card editor-day";
+      overview.dataset.day = day.id;
+      overview.append(textEl("h4", day.label || "Nuova giornata"), textEl("p", `${day.blocks.length} blocchi · ${exerciseCount(day)} esercizi`),
+        button("Modifica giornata", () => go("day", day.id)));
+      collectionControls(overview, definition.sessions, dayIndex);
+      days.appendChild(overview);
+      const dayPanel = panel("day", `Giornata ${dayIndex + 1} di ${definition.sessions.length}`, day.id);
+      field(dayPanel, "Nome giornata", day, "label", { required: true });
+      field(dayPanel, "Sottotitolo", day, "subtitle");
+      field(dayPanel, "Istruzioni della giornata", day, "instructions", { type: "textarea" });
+      for (const [blockIndex, block] of day.blocks.entries()) {
+        const summary = document.createElement("article");
+        summary.className = "readonly-item";
+        summary.dataset.blockSummary = block.id;
+        summary.append(textEl("h4", block.label || workoutBlockLabel(block)), textEl("p", `${workoutBlockLabel(block)} · ${getBlockExercises(block).length} esercizi`),
+          button("Modifica blocco", () => go("block", day.id, block.id)));
+        collectionControls(summary, day.blocks, blockIndex);
+        dayPanel.appendChild(summary);
+        const blockPanel = panel("block", `Blocco ${blockIndex + 1} · ${workoutBlockLabel(block)}`, block.id);
+        blockPanel.dataset.block = block.id;
+        field(blockPanel, "Nome blocco", block, "label", { required: true });
+        field(blockPanel, "Istruzioni del blocco", block, "instructions", { type: "textarea" });
+        if (block.type === "superset") {
+          field(blockPanel, "Giri obbligatori", block, "rounds", { type: "number", min: 1, max: 30, required: true });
+          field(blockPanel, "Giri opzionali", block, "optionalRounds", { type: "number", min: 0, max: 30 });
+          field(blockPanel, "Recupero dopo il giro (secondi)", block, "restSeconds", { type: "number", min: 0, max: 3600, required: true });
+          blockPanel.appendChild(textEl("p", "Almeno due esercizi, eseguiti una volta per giro. Nessun recupero tra i movimenti; il recupero è solo dopo il giro.", "view-description"));
+        } else if (block.type === "amrap") {
+          field(blockPanel, "Durata AMRAP (minuti)", block, "durationMinutes", { type: "number", min: 1, max: 180, required: true });
+          blockPanel.appendChild(textEl("p", "Circuito a tempo: si registrano giri completi e ripetizioni extra, non serie individuali.", "view-description"));
+        } else if (block.type === "emom") {
+          const rounds = field(blockPanel, "Giri EMOM", block, "rounds", { type: "number", min: 1, max: Math.min(180, Math.floor(180 / block.minutes.length)), required: true });
+          const duration = textEl("p", "", "view-description");
+          const describe = () => { duration.textContent = `${block.minutes.length} slot da 60 secondi × ${block.rounds || 0} giri = ${block.minutes.length * (block.rounds || 0)} minuti (massimo 180). Più esercizi nello stesso slot condividono il minuto.`; };
+          rounds.addEventListener("input", () => {
+            describe();
+            const addMinute = blockPanel.querySelector("[data-add-minute]");
+            if (addMinute) addMinute.disabled = minuteCount(day) >= 50 || exerciseCount(day) >= 50 || (block.minutes.length + 1) * block.rounds > 180;
+          });
+          describe();
+          blockPanel.appendChild(duration);
+        }
+        if (block.type === "emom") {
+          block.minutes.forEach((minute, minuteIndex) => {
+            const group = document.createElement("fieldset");
+            group.dataset.minute = minute.id;
+            group.appendChild(textEl("legend", `Minuto ${minuteIndex + 1} · 60 secondi`));
+            exerciseFields(group, day, block, minute.exercises);
+            collectionControls(group, block.minutes, minuteIndex);
+            blockPanel.appendChild(group);
+          });
+          const addMinute = button("Aggiungi minuto", () => update(() => block.minutes.push(newWorkoutMinute())));
+          addMinute.dataset.addMinute = "";
+          addMinute.disabled = minuteCount(day) >= 50 || exerciseCount(day) >= 50 || (block.minutes.length + 1) * block.rounds > 180;
+          blockPanel.appendChild(addMinute);
+        } else exerciseFields(blockPanel, day, block, block.exercises);
+        blockPanel.appendChild(button("Completa blocco", () => { if (checkFields(true)) go("day", day.id); }, "btn btn-primary"));
+      }
+      addBlockControls(dayPanel, day);
+      dayPanel.appendChild(button("Completa giornata", () => { if (checkFields(true)) go("days"); }, "btn btn-primary"));
+    });
+    const addDay = button("Aggiungi giornata", () => {
+      const day = { id: `day-${crypto.randomUUID()}`, label: "", blocks: [newWorkoutBlock("standard")] };
+      update(() => definition.sessions.push(day), "day", day.id, null);
+    });
+    addDay.disabled = definition.sessions.length >= 30;
+    days.append(addDay, button("Rivedi e continua", review, "btn btn-primary"));
+    const reviewPanel = panel("review", "Rivedi e salva");
+    reviewPanel.appendChild(textEl("p", "Salvare attiva il piano e avvia progressi separati. Gli allenamenti precedenti restano in Progresso.", "view-description"));
+    if (screen === "review") {
+      const content = document.createElement("div");
+      renderPlan(content, definition, (id) => go("day", id));
+      reviewPanel.appendChild(content);
+    }
+    const submit = createButton(saving ? "Salvataggio..." : "Salva piano", "btn btn-primary");
+    submit.type = "submit";
+    reviewPanel.append(submit, button("Esporta CSV delle modifiche", () => exportPlan(definition)));
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      if (saving || !checkFields()) return;
+      if (screen !== "review") { review(); return; }
+      void save();
+    });
+    if (screen === "day" && !definition.sessions.some((day) => day.id === selectedDay)) screen = "days";
+    if (screen === "block" && !definition.sessions.some((day) => day.blocks.some((block) => block.id === selectedBlock))) screen = "days";
+    show(screen, screen === "block" ? selectedBlock : selectedDay);
+    container.appendChild(form);
+    panels.find((section) => !section.hidden)?.querySelector("h3")?.focus();
+  }
+
   function onStatus() {
     if (["today", "full", "choose"].includes(mode)) render();
     else if (status) status.textContent = message || library.snapshot().error;
@@ -681,4 +955,24 @@ function newWorkoutDay() {
 }
 function newWorkoutPlan() {
   return { version: 2, trackingId: crypto.randomUUID(), title: "La mia scheda", warmup: [], sessions: [newWorkoutDay()] };
+}
+
+function newWorkoutBlockExercise(type) {
+  const exercise = newWorkoutItem();
+  if (type !== "amrap") Object.assign(exercise, { measurementMode: "reps", usesWeight: false });
+  if (type === "standard") Object.assign(exercise, { sets: 3, optionalSets: 0, rest: 0 });
+  return exercise;
+}
+
+function newWorkoutMinute() {
+  return { id: `minute-${crypto.randomUUID()}`, exercises: [newWorkoutBlockExercise("emom")] };
+}
+
+function newWorkoutBlock(type) {
+  const block = { id: `block-${crypto.randomUUID()}`, type, label: workoutBlockLabel({ type }), instructions: "" };
+  if (type === "superset") Object.assign(block, { rounds: 3, optionalRounds: 0, restSeconds: 60 });
+  if (type === "amrap") block.durationMinutes = 20;
+  if (type === "emom") Object.assign(block, { rounds: 3, minutes: [newWorkoutMinute()] });
+  else block.exercises = Array.from({ length: type === "superset" ? 2 : 1 }, () => newWorkoutBlockExercise(type));
+  return block;
 }

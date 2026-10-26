@@ -103,7 +103,7 @@ test("text and controls remain readable on the strongest layered Aura tints", (t
 test("browser chrome matches the canvas and the stylesheet cache version is updated", (t) => {
   const { document, tokens } = theme(t);
   assert.equal(document.querySelector('meta[name="theme-color"]').content, tokens.getPropertyValue("--bg").trim());
-  assert.equal(document.querySelector('link[rel="stylesheet"]').getAttribute("href"), "assets/styles.css?v=17");
+  assert.equal(document.querySelector('link[rel="stylesheet"]').getAttribute("href"), "assets/styles.css?v=18");
   assert.equal(document.documentElement.lang, "it");
 });
 

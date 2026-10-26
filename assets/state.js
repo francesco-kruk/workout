@@ -41,23 +41,28 @@ function applyManualWorkoutProgress(plan, intent) {
   if (getCurrentSessionId(plan) !== intent.sessionId || getProgress(intent.sessionId).runId !== intent.runId) {
     throw new Error("Richiesta salvata, ma la giornata è cambiata. Il piano non è stato modificato.");
   }
+  const current = getStoredSession(store, intent.sessionId);
+  if (current.amrap.deadline !== null) {
+    current.amrap.remainingMilliseconds = Math.max(0, current.amrap.deadline - Date.now());
+    current.amrap.deadline = null;
+  }
+  for (const block of Object.values(current.blocks)) {
+    if (block.timer?.deadline != null) {
+      block.timer = { ...block.timer, remainingMilliseconds: Math.max(0, block.timer.deadline - Date.now()), deadline: null };
+    }
+  }
+  current.restTimer = null;
+  current.exerciseTimer = null;
   if (intent.replacesPlanned) {
     const nextId = nextSessionId(plan, intent.sessionId);
-    store.sessions[intent.sessionId] = {
-      ...getStoredSession(store, intent.sessionId), restTimer: null, exerciseTimer: null,
-      amrap: getProgress(intent.sessionId).amrap,
-    };
+    store.sessions[intent.sessionId] = current;
     store.sessions[nextId] = {
       runId: crypto.randomUUID(), steps: {}, history: [], results: {},
       amrap: normalizeAmrap(), restTimer: null,
     };
     store.currentSessionId = nextId;
   } else {
-    const progress = getStoredSession(store, intent.sessionId);
-    progress.restTimer = null;
-    progress.exerciseTimer = null;
-    progress.amrap = getProgress(intent.sessionId).amrap;
-    store.sessions[intent.sessionId] = progress;
+    store.sessions[intent.sessionId] = current;
   }
   store.manualApplied = { ...store.manualApplied, [intent.id]: true };
   // Progression and the retry marker must commit together.
@@ -129,6 +134,7 @@ function getProgress(sessionId) {
     history: Array.isArray(stored?.history) ? [...stored.history] : [],
     results: isObject(stored?.results) ? { ...stored.results } : {},
     amrap: normalizeAmrap(stored?.amrap),
+    blocks: isObject(stored?.blocks) ? JSON.parse(JSON.stringify(stored.blocks)) : {},
     restTimer: normalizeRestTimer(stored?.restTimer),
     exerciseTimer: normalizeExerciseTimer(stored?.exerciseTimer, stored?.runId),
   };
@@ -157,10 +163,19 @@ function completeStepsBefore(plan, sessionId, targetKey) {
   const store = readProgressStore();
   const progress = getStoredSession(store, sessionId);
   const precedingKeys = steps.slice(0, targetIndex).map((step) => step.key);
+  if (steps.slice(0, targetIndex).some((step) => ["amrap", "emom"].includes(step.type) && !progress.steps[step.key])) {
+    throw new Error("Completa i blocchi a tempo prima di saltare agli esercizi successivi.");
+  }
+  if (plan.version === 3 && steps.slice(0, targetIndex).some((step) => {
+    if (step.type !== "set" || progress.steps[step.key]) return false;
+    const value = parseSetResult(progress.results[step.key], step.exercise);
+    const { mode, usesWeight } = getExerciseTracking(step.exercise);
+    return value[mode] === undefined || (usesWeight && value.weightKg === undefined);
+  })) throw new Error("Registra i risultati delle serie precedenti prima di avanzare.");
   const precedingKeySet = new Set(precedingKeys);
 
   for (const key of precedingKeys) {
-    progress.steps[key] = "completed";
+    if (plan.version !== 3 || !progress.steps[key]) progress.steps[key] = "completed";
   }
   progress.history = [
     ...progress.history.filter((key) => !precedingKeySet.has(key)),
@@ -173,17 +188,28 @@ function completeStepsBefore(plan, sessionId, targetKey) {
   return true;
 }
 
-function undoLastStep(sessionId) {
+function undoLastStep(sessionId, plan = null) {
   const store = readProgressStore();
   const progress = getStoredSession(store, sessionId);
   const key = progress.history.pop();
   if (!key) return null;
 
+  const day = plan?.sessions.find((session) => session.id === sessionId);
+  const steps = day ? getWorkoutSteps(plan, day) : [];
+  const last = steps.find((step) => step.key === key);
+  if (last?.block?.type === "superset" && progress.steps[key] === "skipped") {
+    const round = steps.filter((step) => step.block?.id === last.block.id && step.setNumber === last.setNumber);
+    for (const step of round) {
+      delete progress.steps[step.key];
+      progress.history = progress.history.filter((entry) => entry !== step.key);
+    }
+  }
   delete progress.steps[key];
   progress.exerciseTimer = null;
   if (key === `${sessionId}:amrap`) {
     progress.amrap.completed = false;
   }
+  progress.restTimer = null;
   store.sessions[sessionId] = progress;
   writeProgressStore(store);
   return key;
@@ -199,6 +225,77 @@ function updateAmrap(sessionId, updates) {
   store.sessions[sessionId] = progress;
   writeProgressStore(store);
   return { ...progress.amrap };
+}
+
+function updateBlockProgress(sessionId, blockId, updates) {
+  const store = readProgressStore();
+  const progress = getStoredSession(store, sessionId);
+  progress.blocks[blockId] = { ...progress.blocks[blockId], ...updates };
+  store.sessions[sessionId] = progress;
+  writeProgressStore(store);
+  return JSON.parse(JSON.stringify(progress.blocks[blockId]));
+}
+
+function getBlockProgress(sessionId, block) {
+  return getProgress(sessionId).blocks[block.id] || {};
+}
+
+function timedBlockMilliseconds(block) {
+  return (block.type === "amrap" ? block.durationMinutes : block.rounds * block.minutes.length) * 60000;
+}
+
+function timedBlockClock(block, saved = {}) {
+  const duration = timedBlockMilliseconds(block);
+  const timer = saved.timer;
+  if (timer != null && (!isObject(timer) || !Number.isFinite(timer.remainingMilliseconds)
+    || timer.remainingMilliseconds < 0 || timer.remainingMilliseconds > duration
+    || !(timer.deadline === null || Number.isFinite(timer.deadline)))) throw new Error("Timer del blocco non valido.");
+  const remaining = timer?.deadline != null ? Math.max(0, timer.deadline - Date.now())
+    : timer?.remainingMilliseconds ?? duration;
+  if (!Number.isFinite(remaining) || remaining < 0 || remaining > duration
+    || (timer?.deadline != null && !Number.isFinite(timer.deadline))) throw new Error("Timer del blocco non valido.");
+  const elapsed = duration - remaining;
+  return {
+    remaining, elapsed, running: timer?.deadline != null && remaining > 0,
+    minute: Math.min(Math.floor(elapsed / 60000), duration / 60000 - 1),
+  };
+}
+
+function blockCompletionResults(session, progress) {
+  const results = {};
+  for (const block of session.blocks) {
+    if (!["amrap", "emom"].includes(block.type)) continue;
+    const value = progress.blocks[block.id] || {};
+    if (timedBlockClock(block, value).remaining !== 0) throw new Error("Il timer del blocco deve terminare.");
+    if (block.type === "amrap") {
+      results[block.id] = { rounds: parseAmrapCount(value.rounds ?? 0, "Giri completi"),
+        extraReps: parseAmrapCount(value.extraReps, "Ripetizioni extra", true) };
+    } else {
+      const minutes = {};
+      const count = block.rounds * block.minutes.length;
+      if (!isObject(value.minutes) || Object.keys(value.minutes).length !== count) {
+        throw new Error("EMOM: conferma esattamente tutti i minuti del programma.");
+      }
+      for (let index = 0; index < count; index++) {
+        const minute = value.minutes?.[index];
+        if (!minute || !["completed", "missed"].includes(minute.status)) throw new Error(`EMOM: conferma il minuto ${index + 1}.`);
+        const measurements = {};
+        for (const exercise of block.minutes[index % block.minutes.length].exercises) {
+          const raw = minute.measurements?.[exercise.id];
+          if (!raw) continue;
+          let parsed;
+          try { parsed = parseSetResult(raw, exercise); }
+          catch (failure) { throw new Error(`Minuto ${index + 1}, ${exercise.name}: ${failure.message}`); }
+          if (minute.status === "missed" && Object.keys(parsed).length) throw new Error("Un minuto mancato non può contenere misurazioni.");
+          if (Object.keys(parsed).length) measurements[exercise.id] = parsed;
+        }
+        minutes[index] = { status: minute.status, measurements };
+      }
+      results[block.id] = { minutes };
+    }
+  }
+  if (workoutJsonbSize(results) > 200000) throw new Error("Risultati dei blocchi troppo grandi (massimo 200000 caratteri).");
+  return results;
 }
 
 function updateSetResult(sessionId, key, values) {
@@ -344,6 +441,27 @@ function getWorkoutSteps(plan, session) {
     optional: false,
   }));
 
+  if (session.blocks) {
+    return [...warmupSteps, ...session.blocks.flatMap((block) => {
+      if (["amrap", "emom"].includes(block.type)) return [{
+        key: `${block.id}:${block.type}`, type: block.type, block, session, optional: false,
+      }];
+      const rounds = block.rounds + (block.optionalRounds || 0);
+      if (block.type === "superset") return Array.from({ length: rounds }, (_, round) =>
+        block.exercises.map((exercise, exerciseIndex) => ({
+          key: `${exercise.id}:${round}`, type: "set", exercise, exerciseIndex, block,
+          setNumber: round + 1, totalSets: rounds, optional: round >= block.rounds,
+          roundEnd: exerciseIndex === block.exercises.length - 1,
+        }))
+      ).flat();
+      return block.exercises.flatMap((exercise, exerciseIndex) =>
+        Array.from({ length: exercise.sets + (exercise.optionalSets || 0) }, (_, index) => ({
+          key: `${exercise.id}:${index}`, type: "set", exercise, exerciseIndex, block,
+          setNumber: index + 1, totalSets: exercise.sets + (exercise.optionalSets || 0), optional: index >= exercise.sets,
+        }))
+      );
+    })];
+  }
   if (session.type === "amrap") {
     return [
       ...warmupSteps,
@@ -410,6 +528,8 @@ function hasPlannedWorkoutActivity(plan, session) {
   })) return true;
   if (progress.restTimer || (progress.exerciseTimer
     && steps.some((step) => step.key === progress.exerciseTimer.stepKey))) return true;
+  if (Object.values(progress.blocks).some((block) => block.timer || block.rounds > 0
+    || entered(block.extraReps) || Object.keys(block.minutes || {}).length)) return true;
   if (session.type !== "amrap") return false;
   const amrap = progress.amrap;
   return amrap.completed || amrap.rounds > 0 || entered(amrap.extraReps)
@@ -434,6 +554,7 @@ function getStoredSession(store, sessionId) {
     history: Array.isArray(stored?.history) ? [...stored.history] : [],
     results: isObject(stored?.results) ? { ...stored.results } : {},
     amrap: normalizeAmrap(stored?.amrap),
+    blocks: isObject(stored?.blocks) ? JSON.parse(JSON.stringify(stored.blocks)) : {},
     restTimer: normalizeRestTimer(stored?.restTimer),
     exerciseTimer: normalizeExerciseTimer(stored?.exerciseTimer, stored?.runId),
   };
@@ -450,6 +571,7 @@ function normalizeAmrap(amrap) {
     rounds: Number.isFinite(amrap?.rounds) ? Math.max(0, amrap.rounds) : 0,
     extraReps: amrap?.extraReps ?? "",
     completed: Boolean(amrap?.completed),
+    deadline: Number.isFinite(amrap?.deadline) ? amrap.deadline : null,
   };
 }
 

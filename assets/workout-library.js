@@ -110,7 +110,7 @@ window.workoutLibrary = (() => {
       if (!deletedActive && record && state.record && record.id !== state.record.id
         && state.record.definition.sessions.some((day) => {
           const summary = getSessionSummary(state.record.definition, day);
-          return summary.handled > 0 && !summary.complete;
+          return hasPlannedWorkoutActivity(state.record.definition, day) && !summary.complete;
         })) {
         state.availableRecord = record;
         state.notice = "È disponibile un piano aggiornato. Puoi continuare l'allenamento attuale o scegliere il nuovo piano nella tab Piano.";
@@ -228,10 +228,30 @@ window.workoutLibrary = (() => {
     for (const step of summary.steps) {
       if (step.type !== "set" || summary.progress.steps[step.key] !== "completed") continue;
       const value = parseSetResult(summary.progress.results[step.key], step.exercise);
+      if (plan.version === 3) {
+        const { mode, usesWeight } = getExerciseTracking(step.exercise);
+        if (value[mode] === undefined || (usesWeight && value.weightKg === undefined)) {
+          throw new Error(`${step.exercise.name}: registra tutti i risultati richiesti.`);
+        }
+      }
       if (Object.keys(value).length) measurements[step.key] = value;
     }
     const extraReps = session.type === "amrap"
       ? parseAmrapCount(summary.progress.amrap.extraReps, "Ripetizioni extra", true) : null;
+    if (workoutJsonbSize(measurements) > 200000) throw new Error("Misurazioni troppo grandi (massimo 200000 caratteri).");
+    if (plan.version === 3) {
+      for (const block of session.blocks.filter((block) => block.type === "superset")) {
+        for (let round = block.rounds; round < block.rounds + (block.optionalRounds || 0); round++) {
+          const statuses = new Set(block.exercises.map((exercise) => summary.progress.steps[`${exercise.id}:${round}`]));
+          if (statuses.size !== 1) throw new Error("Salta o completa l'intero giro opzionale della superserie.");
+        }
+      }
+      return {
+        payloadVersion: 3, planVersionId: record.id, sessionId: session.id,
+        steps: Object.fromEntries(summary.steps.map((step) => [step.key, summary.progress.steps[step.key]])),
+        measurements, blockResults: blockCompletionResults(session, summary.progress),
+      };
+    }
     return {
       planVersionId: record.id,
       sessionId: session.id,

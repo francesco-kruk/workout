@@ -1,0 +1,107 @@
+{
+  "version": 3,
+  "title": "Esempio di giornata a blocchi",
+  "warmup": [],
+  "sessions": [
+    {
+      "id": "mixed-day",
+      "label": "Forza e circuiti",
+      "blocks": [
+        {
+          "id": "strength-block",
+          "label": "Serie tradizionali",
+          "type": "standard",
+          "exercises": [
+            {
+              "id": "strength-squat",
+              "name": "Squat",
+              "target": "8 ripetizioni",
+              "sets": 2,
+              "rest": 60,
+              "measurementMode": "reps",
+              "usesWeight": true
+            }
+          ]
+        },
+        {
+          "id": "superset-block",
+          "label": "Spinta e tirata",
+          "type": "superset",
+          "rounds": 3,
+          "optionalRounds": 1,
+          "restSeconds": 60,
+          "exercises": [
+            {
+              "id": "superset-push",
+              "name": "Piegamenti",
+              "target": "8 ripetizioni",
+              "measurementMode": "reps",
+              "usesWeight": false
+            },
+            {
+              "id": "superset-row",
+              "name": "Rematore",
+              "target": "10 ripetizioni",
+              "measurementMode": "reps",
+              "usesWeight": true
+            }
+          ]
+        },
+        {
+          "id": "amrap-block",
+          "label": "Circuito AMRAP",
+          "type": "amrap",
+          "durationMinutes": 10,
+          "exercises": [
+            {
+              "id": "amrap-squat",
+              "name": "Squat a corpo libero",
+              "target": "10 ripetizioni"
+            },
+            {
+              "id": "amrap-push",
+              "name": "Piegamenti",
+              "target": "5 ripetizioni"
+            }
+          ]
+        },
+        {
+          "id": "emom-block",
+          "label": "EMOM alternato",
+          "type": "emom",
+          "rounds": 3,
+          "minutes": [
+            {
+              "id": "emom-minute-a",
+              "exercises": [
+                {
+                  "id": "emom-squat",
+                  "name": "Squat",
+                  "target": "8 ripetizioni",
+                  "measurementMode": "reps"
+                },
+                {
+                  "id": "emom-push",
+                  "name": "Piegamenti",
+                  "target": "5 ripetizioni",
+                  "measurementMode": "reps"
+                }
+              ]
+            },
+            {
+              "id": "emom-minute-b",
+              "exercises": [
+                {
+                  "id": "emom-plank",
+                  "name": "Plank",
+                  "target": "20 secondi",
+                  "measurementMode": "seconds"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

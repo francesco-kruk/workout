@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { JSDOM } from "jsdom";
 
 const sources = {};
-for (const file of ["state", "attendance", "social", "social-config", "ui", "manual-workouts", "tab-workout", "tab-leaderboard", "tab-progress", "tab-profile", "workout-library", "plan-editor", "plan-validation", "tab-plan", "tab-day", "auth-entry", "app"]) {
+for (const file of ["state", "attendance", "social", "social-config", "ui", "manual-workouts", "timed-blocks", "tab-workout", "tab-leaderboard", "tab-progress", "tab-profile", "workout-library", "plan-editor", "plan-validation", "tab-plan", "tab-day", "auth-entry", "app"]) {
   sources[file] = await readFile(new URL(`../assets/${file}.js`, import.meta.url), "utf8");
 }
 const plan = {
@@ -30,7 +30,7 @@ function setup(t, { configured = false, signedIn = true, approved = true } = {})
   w.scrollTo = () => {};
   const errors = [];
   w.console.error = (...args) => errors.push(args);
-  for (const file of ["state", "attendance", "social", "ui", "tab-workout", "tab-leaderboard"]) w.eval(sources[file]);
+  for (const file of ["state", "attendance", "social", "ui", "plan-validation", "timed-blocks", "tab-workout", "tab-leaderboard"]) w.eval(sources[file]);
   const state = { id: signedIn ? alice : null, approved, rpcError: null, authError: null, calls: [], callback: null };
   const fakeClient = {
     auth: {

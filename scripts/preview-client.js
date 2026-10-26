@@ -15,8 +15,17 @@
   const dateLabel = (date) => new Intl.DateTimeFormat("en-CA", {
     timeZone: "Europe/Rome", year: "numeric", month: "2-digit", day: "2-digit",
   }).format(date);
-  function seriesKey(plan, day, exercise = null) {
-    const identity = JSON.stringify([plan.trackingId || "legacy", day.type, exercise
+  function seriesKey(plan, day, exercise = null, block = null) {
+    const type = block?.type || day.type;
+    const circuit = block || day;
+    const members = (items) => items.map((e) => [e.id, e.name, e.target, e.instructions || ""]);
+    const content = type === "emom" ? [block.id, block.rounds, block.instructions || "", block.minutes.map((m) => [m.id, members(m.exercises)])]
+      : type === "superset" ? [block.id, block.rounds, block.optionalRounds || 0, block.restSeconds, block.instructions || "",
+        members(block.exercises), exercise.id]
+        : exercise ? [exercise.id, exercise.name, exercise.instructions || ""]
+          : [block?.legacyDayId || circuit.id, block?.durationMinutes ?? parseInt(day.duration, 10), circuit.instructions || "",
+            members(circuit.exercises)];
+    const identity = JSON.stringify([plan.trackingId || "legacy", type, block ? content : exercise
       ? [exercise.id, exercise.name, exercise.instructions || ""]
       : [day.id, parseInt(day.duration, 10), day.instructions || "",
         day.exercises.map((e) => [e.id, e.name, e.target, e.instructions || ""])]]);
@@ -29,6 +38,40 @@
       const plan = database.plans.find((p) => p.id === row.plan_version_id)?.definition;
       if (!plan) throw new Error("Definizione storica di anteprima non disponibile.");
       const day = row.session;
+      if (day.blocks) return day.blocks.flatMap((block) => {
+        const base = { id: row.id, completed_at: row.completed_at, kind: block.type,
+          name: block.label, context: `${day.label} · ${workoutBlockLabel(block)}`,
+          sets: [], rounds: null, extra_reps: null, max_weight: null, max_reps: null, max_seconds: null };
+        if (block.type === "amrap") {
+          const value = row.block_results?.[block.id];
+          return value ? [{ ...base, series_key: seriesKey(plan, day, null, block),
+            context: `${block.durationMinutes} minuti`, rounds: value.rounds, extra_reps: value.extraReps }] : [];
+        }
+        if (block.type === "emom") {
+          const minutes = row.block_results?.[block.id]?.minutes;
+          if (!minutes) return [];
+          const sets = Object.entries(minutes).map(([index, value]) => ({
+            minute: Number(index), ...value, names: Object.fromEntries(block.minutes[Number(index) % block.minutes.length].exercises.map((e) => [e.id, e.name])),
+          }));
+          return [{ ...base, series_key: seriesKey(plan, day, null, block), sets,
+            rounds: sets.filter((minute) => minute.status === "completed").length,
+            extra_reps: sets.filter((minute) => minute.status === "missed").length }];
+        }
+        return block.exercises.flatMap((exercise) => {
+          const count = block.type === "superset" ? block.rounds + (block.optionalRounds || 0) : exercise.sets + (exercise.optionalSets || 0);
+          const sets = Array.from({ length: count }, (_, i) => {
+            const value = row.measurements?.[`${exercise.id}:${i}`];
+            return value ? { set: i + 1, ...value } : null;
+          }).filter(Boolean);
+          if (!sets.length) return [];
+          const max = (key) => {
+            const values = sets.map((set) => set[key]).filter((value) => value != null);
+            return values.length ? Math.max(...values) : null;
+          };
+          return [{ ...base, series_key: seriesKey(plan, day, exercise, block), name: exercise.name, sets,
+            max_weight: max("weightKg"), max_reps: max("reps"), max_seconds: max("seconds") }];
+        });
+      });
       if (day.type === "amrap") return [{
         id: row.id, completed_at: row.completed_at, series_key: seriesKey(plan, day),
         name: day.subtitle || day.label, context: day.duration, kind: "amrap",
@@ -236,16 +279,25 @@
           persist();
           return ok(record);
         }
-        if (name === "submit_workout_result") {
+        if (name === "submit_workout_result" || name === "submit_workout_result_v3") {
           const plan = database.plans.find((p) => p.id === args.p_plan_version_id);
           const day = plan?.definition.sessions.find((item) => item.id === args.p_session_id);
           if (!plan || !day) throw new Error("Piano di anteprima non disponibile.");
+          if ((plan.definition.version === 3) !== (name === "submit_workout_result_v3")) throw new Error("Formato del risultato non compatibile con il piano.");
+          const existing = database.history.find((result) => result.id === args.p_event_id);
+          if (existing && (existing.plan_version_id !== plan.id || existing.session.id !== day.id
+            || existing.completed_at !== args.p_completed_at || JSON.stringify(existing.steps) !== JSON.stringify(args.p_steps)
+            || JSON.stringify(existing.measurements) !== JSON.stringify(args.p_measurements || {})
+            || JSON.stringify(existing.block_results || {}) !== JSON.stringify(args.p_block_results || {}))) {
+            throw new Error("Evento già usato con risultati diversi.");
+          }
           if (!database.history.some((result) => result.id === args.p_event_id)) {
             database.history.push({
               id: args.p_event_id, completed_at: args.p_completed_at, plan_version_id: plan.id,
               revision: plan.revision, plan_title: plan.definition.title, warmup: plan.definition.warmup,
               session: day, steps: args.p_steps, amrap_rounds: args.p_amrap_rounds,
               measurements: args.p_measurements || {}, amrap_extra_reps: args.p_amrap_extra_reps ?? null,
+              block_results: args.p_block_results || {},
             });
             persist();
           }
@@ -256,12 +308,14 @@
           const cursor = args.p_before_id ? rows.findIndex((row) => row.id === args.p_before_id) + 1 : 0;
           return ok(rows.slice(cursor, cursor + 20));
         }
-        if (name === "workout_previous") {
+        if (name === "workout_previous" || name === "workout_previous_v3") {
           const plan = database.plans.find((p) => p.id === args.p_plan_version_id)?.definition;
           const day = plan?.sessions.find((d) => d.id === args.p_session_id);
           if (!day) throw new Error("Piano di anteprima non disponibile.");
-          const e = args.p_exercise_id ? day.exercises.find((e) => e.id === args.p_exercise_id) : null;
-          const target = seriesKey(plan, day, e);
+          const block = day.blocks?.find((b) => b.id === args.p_block_id);
+          if (day.blocks && !block) throw new Error("Blocco di anteprima non disponibile.");
+          const e = args.p_exercise_id ? (block ? getBlockExercises(block) : day.exercises).find((e) => e.id === args.p_exercise_id) : null;
+          const target = seriesKey(plan, day, e, block);
           const result = entries().find((e) => e.series_key === target) || null;
           persist();
           return ok(result);

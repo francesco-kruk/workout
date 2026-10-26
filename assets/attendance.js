@@ -70,6 +70,7 @@ function hasRecordedWorkout(runId) {
 }
 
 function applyWorkoutProgress(plan, sessionId, update) {
+  const before = readProgressStore();
   const wasComplete = getSessionSummary(
     plan, plan.sessions.find((session) => session.id === sessionId)
   ).complete;
@@ -77,11 +78,14 @@ function applyWorkoutProgress(plan, sessionId, update) {
   const summary = getSessionSummary(
     plan, plan.sessions.find((session) => session.id === sessionId)
   );
-  if (!wasComplete && summary.complete && !summary.progress.legacyCompletion) {
+  if (!wasComplete && summary.complete && !summary.progress.legacyCompletion && !hasRecordedWorkout(summary.progress.runId)) {
     const session = plan.sessions.find((item) => item.id === sessionId);
-    window.workoutSocial.recordCompletion(
-      summary.progress.runId,
-      window.workoutLibrary?.completionDetails(plan, summary, session) || null
-    );
+    try {
+      const details = window.workoutLibrary?.completionDetails(plan, summary, session) || null;
+      window.workoutSocial.recordCompletion(summary.progress.runId, details);
+    } catch (failure) {
+      if (!hasRecordedWorkout(summary.progress.runId)) writeProgressStore(before);
+      throw failure;
+    }
   }
 }

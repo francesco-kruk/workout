@@ -45,6 +45,7 @@ await db.exec(await readFile(new URL("../supabase/migrations/202610240005_exerci
 await db.exec(await readFile(new URL("../supabase/migrations/202610240006_optional_warmup.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240007_set_notes.sql", import.meta.url), "utf8"));
 await db.exec(await readFile(new URL("../supabase/migrations/202610240008_required_rest.sql", import.meta.url), "utf8"));
+await db.exec(await readFile(new URL("../supabase/migrations/202610260001_workout_blocks.sql", import.meta.url), "utf8"));
 after(() => db.close());
 
 beforeEach(async () => {

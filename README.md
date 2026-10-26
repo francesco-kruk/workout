@@ -78,6 +78,7 @@ is not supported: there is no service worker.
    supabase/migrations/202610240006_optional_warmup.sql
    supabase/migrations/202610240007_set_notes.sql
    supabase/migrations/202610240008_required_rest.sql
+   supabase/migrations/202610260001_workout_blocks.sql
    ```
 
    Each migration runs once; apply only migrations not already deployed. Together
@@ -99,6 +100,10 @@ is not supported: there is no service worker.
    plans, old caches, and drafts. New saves/imports still require explicit numbers.
    The migration aborts atomically if any stored plan has missing or
    unconvertible rest; correct those definitions explicitly before retrying.
+   Apply the workout-blocks migration **before** publishing the mixed-block
+   frontend. It adds version-3 validation and private block results without
+   rewriting existing plans or results. Older plans and pending completions
+   continue to use their original submission contract.
 3. In **Authentication > URL Configuration**, set both the Site URL and an
    allowed Redirect URL to `https://francesco-kruk.github.io/workout/`, including
    the project path and trailing slash. These settings are retained for legacy
@@ -197,7 +202,12 @@ During rest, the timer shows the exercise just completed and its completed-set
 count, including any optional sets in the total. Skipped sets are not counted as
 completed. This context remains visible while paused and after reloading.
 Browsers may suspend timer callbacks in the background or with the screen locked.
-An already-expired rest timer restored on page load is cleared. The AMRAP timer is unchanged.
+An already-expired rest timer restored on page load is cleared.
+Running AMRAP and EMOM clocks continue until explicitly paused, including across
+tab changes, reloads, and screen locking. The display catches up from saved
+timestamps when the browser resumes; it does not depend on background callbacks.
+Timers remain local to the account, plan version, day, and workout run. Changing
+days preserves their saved clocks; resetting a day starts a fresh run.
 
 Standard exercises tracked in seconds also offer an optional **Timer esercizio**
 inside the exercise card. Exact time targets prefill the duration; ranges use
@@ -328,7 +338,69 @@ The interface accepts and exports **CSV only**, not JSON. JSON remains the inter
 storage/validation format. No external-agent prompt/skill workflow, integrated
 Spotter, PDF import, or hosted AI extraction is included.
 
+### Mixed workout blocks
+
+The manual flow also supports **blocchi misti**: a day can contain ordered
+**Serie**, **Superserie**, **AMRAP**, and **EMOM** blocks. Converting a legacy
+day changes only the open candidate until **Salva piano**. Add, reorder, or remove
+blocks and their exercises, then review the entire day before saving.
+
+**Superserie** share required/optional rounds and a numeric recovery in seconds.
+The app guides A1, B1, A2, B2, with no recovery between movements. Recovery starts
+only at the end of a round when more work remains, never after the day's final
+activity. Each movement retains its own target, configured reps/time, weight,
+notes, and results. Skipping an optional round skips all its movements together.
+Existing combined descriptions are not automatically split: some bundled
+prescriptions explicitly include an internal 20-second rest and must be edited
+deliberately rather than reinterpreted.
+
+Each **AMRAP** block has its own countdown, complete-round counter, and optional
+extra-rep total. The full exercise list remains visible; exercise-by-exercise
+AMRAP logging is not required. Finish the block explicitly after its timer ends.
+
+**EMOM** uses a repeating schedule of 60-second minute slots. Put one or several
+exercises in each slot and choose the number of rounds. The duration is rounds
+times slot count. Completing a minute early leaves the remaining time for rest;
+the clock advances automatically on schedule, including when a minute is still
+unconfirmed. It never marks work done or invents measurements.
+
+Use **Rivedi minuto EMOM** to record each started minute as completed or missed.
+Reps/time, configured weight, and notes are optional for completed minutes;
+missed minutes have no measurements. After the clock ends, reconcile all minutes
+before **Completa EMOM**. Explicit misses remain in private history and do not
+prevent finishing the workout or receiving its normal single attendance credit.
+There is no new EMOM score or change to Aura.
+
+AMRAP/EMOM have explicit Pause/Resume and Reset controls. Navigation and reloads
+do not pause a running clock. Reset clears the current block's timer/results;
+resetting the whole day clears all its blocks. Results can be corrected before
+day completion, but a completed receipt is immutable. All results remain private.
+
 ### CSV round-trip
+
+For mixed days, download
+[`data/workout-blocks-template.csv`](data/workout-blocks-template.csv), also linked
+from the CSV authoring screen. Its `format_version` is `3`; legacy templates
+and exports remain importable. The version-3 header extends the existing columns
+with `block_key`, `minute_key`, `block_type`, `rounds`, `optional_rounds`, and
+`legacy_day_id`.
+
+Use one `plan` row, optional `warmup` rows, `day` rows, `block` rows, EMOM `minute`
+rows, and `exercise` rows. Repeat the parent `day_key` and `block_key` on child
+rows; EMOM exercises additionally reference `minute_key`. Keys are unique within
+the file and row order controls sibling order. Keep `session_type` blank
+for version 3; use `standard`, `superset`, `amrap`, or `emom` in a block's
+`block_type`. Standard sets/rest go on exercise rows. Superset
+rounds/optional rounds/rest and AMRAP duration go on the block row.
+EMOM rounds go on its block; each `minute` row is one fixed 60-second slot.
+Leave non-applicable cells empty.
+
+Retain identity columns only when editing the matching saved version. Retained
+IDs must belong to the same row kind, parent, and block format; new members or
+changed-format blocks need blank `row_id` values. `legacy_day_id` is comparison
+metadata from an explicitly converted AMRAP day, not a grouping key; preserve it
+on matching edits rather than adding it to new circuits. New-plan imports always
+receive fresh identities and a fresh comparison namespace.
 
 Download **Scarica modello CSV**, edit it in Excel or Google Sheets, and export
 as UTF-8 CSV. Remove unwanted example rows. Keep the exact headers from
@@ -436,15 +508,16 @@ AMRAP extra reps accept integers 0–100000, and duration accepts integer second
 0–86400. The browser and database reject invalid values explicitly. No automatic
 unit/target parsing, assisted-load inference, or estimated 1RM is performed.
 Skipped sets and jump-ahead completion do not invent actual values. Historical
-unrecorded values remain unrecorded. Supersets retain one result per exercise
-card; use a consistent logging convention for combined movements.
+unrecorded values remain unrecorded. Structured supersets retain one result per
+movement per round. Legacy combined-movement cards retain their original single
+result; edit them explicitly into blocks if separate movement results are needed.
 
 After completing a standard set, a positive prescribed recovery replaces the
 exercise card and set actions. Pause/resume the timer or choose **Salta recupero**.
 When recovery expires, the next exercise/set appears automatically, including
 after returning to the tab or reloading the page. Sets with no recovery (or zero
 seconds) advance immediately; no recovery is started after the final step.
-Warmup and the AMRAP circuit timer are unchanged.
+Warm-up and timed circuit blocks use their own controls.
 
 AMRAP keeps the timer and full-round counter and adds **Ripetizioni extra**:
 the total completed repetitions after the last full circuit. These are displayed
@@ -476,6 +549,13 @@ legacy namespace, retaining compatibility. Do not manually reuse IDs/namespaces
 for a different movement. Matching version-2 CSV edit round-trips preserve IDs and
 namespaces; legacy CSVs and new-plan imports deliberately start new comparisons.
 
+For version-3 AMRAP, the block identity replaces whole-day identity; compatible
+explicit legacy conversions keep the original reference. Superset comparison
+identity includes its round/recovery protocol, and EMOM includes the ordered
+minute schedule, rounds, targets, and instructions. Changed formats/protocols
+start separate series. EMOM history shows completed/missed minutes, not a
+synthetic performance score.
+
 Only the owner can read actual performance. Friends see attendance and points,
 never weights, exercise definitions, or private results. Performance does not
 change ranking points.
@@ -493,8 +573,11 @@ blocking private plan loading or sign-in.
 
 ### Internal JSON format (developer reference)
 
-Stored plans use the same `version: 2`, `title`, `warmup`, and `sessions`
-structure as `data/workout-plan.json`. The app exchanges CSV instead;
+Legacy stored plans use the `version: 2`, `title`, `warmup`, and `sessions`
+structure in `data/workout-plan.json`. Mixed plans use `version: 3` and replace
+each session's `type`, `duration`, and `exercises` with ordered `blocks`; see
+[`data/workout-blocks-example.json`](data/workout-blocks-example.json).
+The app exchanges CSV instead;
 the app converts it automatically. The browser, validation script, and database
 validate it. Limits protect rendering and submission size: 0–50 warmup items,
 1–30 days, 1–50 exercises per day, 1–30 required sets, 0–30 optional sets, at most
@@ -507,6 +590,31 @@ only letters, digits, underscores, or hyphens (up to 80 characters).
 `warmup`, `constructor`, `prototype`, and `__proto__` are reserved.
 Text fields allow up to 4000 characters; the browser limits a compact JSON plan
 to 200000 characters. The editor generates IDs automatically.
+
+Version 3 supports 1-50 blocks per day, at most 50 exercise definitions per day,
+and at most 1500 expanded work items including warm-up and repeated superset/EMOM
+exercise appearances. Block and minute-slot IDs share the same global uniqueness
+rules as day/exercise IDs. Blocks have `id`, `label`, `type`, optional `instructions`,
+and only their format's fields:
+
+- `standard`: `exercises` with existing set/rest/tracking fields.
+- `superset`: `rounds` (1-30), optional `optionalRounds` (0-30),
+  `restSeconds` (0-3600), and at least two exercises with individual tracking.
+  Member exercises have no individual set/rest fields.
+- `amrap`: `durationMinutes` (1-180) and an exercise list without per-set tracking.
+  `legacyDayId`, when present for conversion compatibility, equals the parent day
+  ID and is allowed on only one AMRAP block in that day.
+- `emom`: `rounds` (1-180) and `minutes`, each with an `id` and one or more
+  `exercises` with optional measurement/weight settings. There are at most 50
+  slots and at most 180 total minutes (`rounds * minutes.length`).
+
+Version-3 receipts use `payloadVersion: 3`, regular/superset `measurements`, and
+`blockResults`. AMRAP results contain `rounds` and nullable `extraReps`; EMOM
+results contain zero-based `minutes` with `completed`/`missed` status and optional
+per-exercise `measurements`. Measurement and block-result containers are each
+limited to 200000 characters; oversized results fail visibly before a completion
+receipt is created. These results use `submit_workout_result_v3`; legacy receipts
+keep the existing RPC and scalar AMRAP fields.
 
 Standard exercises use `measurementMode: "reps" | "seconds"` and
 `usesWeight: true | false` for their tracking settings. New exercises default to
@@ -521,7 +629,7 @@ these fields in Supabase as well as in the browser and validation script.
 In **Allenamento**, open **Allenamento alternativo / manuale** before starting the
 planned day, after finishing an alternative activity, such as a run or home workout.
 The option disappears when you complete a warmup step or set, enter results
-(including set notes), or start an exercise or AMRAP timer. It returns only after
+(including set notes), or start an exercise, AMRAP, or EMOM timer. It returns only after
 all completed steps are undone, entered results are cleared, and timers are reset.
 **Indietro** preserves entered results, so undoing steps alone may not restore it.
 Enter a nonempty description (maximum 2,000 characters) and explicitly choose:
