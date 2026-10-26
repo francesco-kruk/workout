@@ -398,6 +398,25 @@ function getSessionSummary(plan, session) {
   };
 }
 
+function hasPlannedWorkoutActivity(plan, session) {
+  const progress = getProgress(session.id);
+  const steps = getWorkoutSteps(plan, session);
+  const entered = (value) => value !== undefined && value !== null && String(value).trim() !== "";
+  if (steps.some((step) => progress.steps[step.key] === "completed")) return true;
+  if (steps.some((step) => {
+    if (step.type !== "set") return false;
+    const result = progress.results[step.key] || {};
+    const { mode, usesWeight } = getExerciseTracking(step.exercise);
+    return entered(result[mode]) || (usesWeight && entered(result.weightKg)) || entered(result.notes);
+  })) return true;
+  if (progress.restTimer || (progress.exerciseTimer
+    && steps.some((step) => step.key === progress.exerciseTimer.stepKey))) return true;
+  if (session.type !== "amrap") return false;
+  const amrap = progress.amrap;
+  return amrap.completed || amrap.rounds > 0 || entered(amrap.extraReps)
+    || amrap.remainingMilliseconds !== null;
+}
+
 function getWarmupKey(item) {
   return `warmup:${item.id}`;
 }

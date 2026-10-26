@@ -499,13 +499,18 @@ these fields in Supabase as well as in the browser and validation script.
 
 ## Manual workouts and peer review
 
-In **Allenamento**, open **Allenamento alternativo / manuale** on an unfinished
-planned day after finishing an alternative activity, such as a run or home workout.
+In **Allenamento**, open **Allenamento alternativo / manuale** before starting the
+planned day, after finishing an alternative activity, such as a run or home workout.
+The option disappears when you complete a warmup step or set, enter results
+(including set notes), or start an exercise or AMRAP timer. It returns only after
+all completed steps are undone, entered results are cleared, and timers are reset.
+**Indietro** preserves entered results, so undoing steps alone may not restore it.
 Enter a nonempty description (maximum 2,000 characters) and explicitly choose:
 
 - **Sostituisci:** replace the planned day and advance to a fresh next day once the
   submission succeeds. This does not mark the planned exercises as completed.
-- **Extra:** keep the uncompleted planned day next, preserving its partial progress.
+- **Extra:** keep the uncompleted planned day next. Recovering an earlier submission
+  also preserves any planned progress made since that submission.
 
 Active timers stop on successful submission. Plan progression is local to the
 current device, like ordinary workout progress; votes never advance or roll back
@@ -514,7 +519,9 @@ plan while an upload is in flight, the app does not overwrite the newer progress
 Submission and voting require an approved account and connectivity. Manual requests
 do not enter the normal offline attendance queue. A retained submission ID supports
 **Recupera / riprova lo stesso invio** after an uncertain response without creating
-a duplicate; recover using the original account and plan.
+a duplicate; recover using the original account and plan. This recovery action
+remains available if you have since started the unfinished planned workout, but
+does not allow a new manual request.
 
 The server records the completion timestamp on the first accepted submission:
 there is no editable date or backdating control. Retries preserve the original

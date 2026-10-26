@@ -56,6 +56,7 @@ function renderManualWorkoutForm(plan, session) {
   try {
     const raw = localStorage.getItem(key);
     if (raw) {
+      panel.dataset.manualRecovery = "";
       intent = JSON.parse(raw);
       if (!intent || typeof intent.id !== "string" || intent.planVersionId !== versionId
         || !plan.sessions.some((day) => day.id === intent.sessionId) || typeof intent.description !== "string"
@@ -71,9 +72,11 @@ function renderManualWorkoutForm(plan, session) {
     }
   } catch (error) {
     blocked = true;
+    panel.dataset.manualRecovery = "";
     submit.disabled = true;
     feedback(error);
   }
+  panel.hidden = !panel.hasAttribute("data-manual-recovery") && hasPlannedWorkoutActivity(plan, session);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     if (busy || blocked || !form.reportValidity()) return;
@@ -94,12 +97,16 @@ function renderManualWorkoutForm(plan, session) {
           || hasRecordedWorkout(getProgress(session.id).runId)) {
           throw new Error("La giornata è cambiata o è già stata completata. Riapri Allenamento.");
         }
+        if (hasPlannedWorkoutActivity(plan, session)) {
+          throw new Error("Allenamento pianificato già iniziato. Annulla gli step e cancella risultati e timer prima di inviare un allenamento manuale.");
+        }
         const nextIntent = {
           id: crypto.randomUUID(), planVersionId: versionId, sessionId: session.id,
           runId: getProgress(session.id).runId, description: text, replacesPlanned: choice.value === "replace",
         };
         localStorage.setItem(key, JSON.stringify(nextIntent));
         intent = nextIntent;
+        panel.dataset.manualRecovery = "";
       }
       description.disabled = choice.disabled = true;
       const row = await window.workoutSocial.submitManualWorkout(intent);
