@@ -6,6 +6,7 @@ const STORAGE_KEYS = {
 
 const PROGRESS_VERSION = 2;
 const VALID_VIEWS = new Set(["plan", "workout", "profile"]);
+window.WORKOUT_EXERCISE_SETUP_SECONDS = 5;
 let workoutScope = "";
 
 function workoutStorageKey(key) {
@@ -304,13 +305,15 @@ function parseExerciseTargetSeconds(target) {
 }
 
 function normalizeExerciseTimer(timer, runId) {
+  const phase = timer?.phase ?? "exercise";
   if (!isObject(timer) || typeof timer.stepKey !== "string" || !timer.stepKey
     || typeof runId !== "string" || timer.runId !== runId
     || !Number.isInteger(timer.durationSeconds) || timer.durationSeconds < 1 || timer.durationSeconds > 86400
     || !Number.isFinite(timer.remainingMilliseconds) || timer.remainingMilliseconds < 0
-    || timer.remainingMilliseconds > timer.durationSeconds * 1000
+    || !["setup", "exercise"].includes(phase)
+    || timer.remainingMilliseconds > (phase === "setup" ? window.WORKOUT_EXERCISE_SETUP_SECONDS : timer.durationSeconds) * 1000
     || (timer.deadline !== null && !Number.isFinite(timer.deadline))) return null;
-  return { ...normalizeRestTimer(timer), stepKey: timer.stepKey, runId };
+  return { ...normalizeRestTimer(timer), stepKey: timer.stepKey, runId, phase };
 }
 
 function clearProgress(sessionId) {
