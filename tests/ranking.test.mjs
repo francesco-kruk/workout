@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
+import { createRequire } from "node:module";
+
+const { exportWorkoutCsv, readWorkoutCsv } = createRequire(import.meta.url)("../assets/plan-csv.js");
 
 const db = new PGlite();
 const alice = "11111111-1111-4111-8111-111111111111";
@@ -213,6 +216,30 @@ test("compatible plan edits retain comparisons; new lineages and changed movemen
   imported.sessions[0].exercises[0].name = "Different squat";
   const changed = await save(imported,fresh.id);
   assert.equal((await db.query("select public.workout_previous($1,'strength','squat') as p",[changed.id])).rows[0].p,null);
+});
+test("CSV edit round-trips retain actual previous performance without rewriting history", async () => {
+  const original = await save();
+  await complete(original);
+  const csv = exportWorkoutCsv(original.definition, { sourceVersionId: original.id });
+  const edited = readWorkoutCsv(csv.replace("8 reps", "10 reps"), { baseRecord: original });
+  assert.equal(edited.preservesIdentity, true);
+  const next = await save(edited.definition, original.id);
+  const previous = (await db.query("select public.workout_previous($1,'strength','squat') as p", [next.id])).rows[0].p;
+  assert.equal(previous.sets[0].weightKg, 20);
+  const history = (await db.query("select public.workout_history() as h")).rows[0].h;
+  assert.equal(history.length, 1);
+  assert.equal(history[0].plan_version_id, original.id);
+  assert.equal(history[0].session.exercises[0].target, "8 reps");
+
+  const changedCsv = exportWorkoutCsv(next.definition, { sourceVersionId: next.id }).replace("Squat", "Different movement");
+  const changed = await save(readWorkoutCsv(changedCsv, { baseRecord: next }).definition, next.id);
+  assert.equal((await db.query("select public.workout_previous($1,'strength','squat') as p", [changed.id])).rows[0].p, null);
+
+  const fresh = readWorkoutCsv(csv).definition;
+  const replacement = await save(fresh, changed.id);
+  assert.equal((await db.query("select public.workout_previous($1,$2,$3) as p",
+    [replacement.id, fresh.sessions[0].id, fresh.sessions[0].exercises[0].id])).rows[0].p, null);
+  assert.equal((await db.query("select public.workout_history() as h")).rows[0].h.length, 1);
 });
 test("AMRAP rounds and extra reps compare lexicographically only for the same protocol", async () => {
   const original = await save();

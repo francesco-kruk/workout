@@ -665,6 +665,7 @@ test("full app edits a private plan and atomically syncs offline detailed result
     button.click();
   };
   click("Modifica piano");
+  click("Usa Manuale");
   const weight = [...w.document.querySelectorAll("label")].find((label) => label.firstChild.textContent === "Prevede un peso").querySelector("input");
   weight.checked = true;
   weight.dispatchEvent(new w.Event("change"));

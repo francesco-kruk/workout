@@ -26,7 +26,7 @@ npm run preview
 ```
 
 Open `http://127.0.0.1:8765/`. This uses the real app UI with an approved demo
-account and a private-plan example. Create/edit/save plans, resume drafts, and
+account and a private-plan example. Create/edit/save plans, cancel pending edits, and
 try training/history without signing in to Supabase. Data persists only in this
 browser on this local origin. Ranking numbers are illustrative and do not
 recalculate when training or approving demo manual workouts. Classifica includes a
@@ -160,8 +160,8 @@ Signed-in tabs omit the shared app-title header; only actionable account/offline
 notices appear above their content. **Esci** is available in **Profilo**, with a
 separate exit control on access-pending and recovery screens. It immediately
 hides the account's plan/history and stops active timers, returning to **Accedi**
-without showing the example or another account's data. Local drafts, progress,
-and pending completions remain isolated for the next sign-in by their owner.
+without showing the example or another account's data. Unsaved plan edits are
+discarded; progress and pending completions remain isolated by owner.
 If access or initial plan loading fails, an explicit recovery screen allows
 retrying instead of opening an example or treating the failure as a missing plan.
 An already-loaded, approved account can keep training during an outage.
@@ -174,7 +174,7 @@ absence online, then automatically loads the latest remaining server plan. If
 none remains, it opens the create/import screen. A notice explains the switch,
 even when the deleted plan had a workout in progress. A failed server check keeps
 the cached plan with an explicit error instead of treating the failure as deletion.
-Local drafts, version-scoped progress, and pending completions are not deleted.
+Legacy drafts, version-scoped progress, and pending completions are not deleted.
 
 On an older deployment that repeatedly reports **Risposta del server precedente
 alla versione attiva**, open the site's browser developer tools and remove only
@@ -182,9 +182,9 @@ the `workout.personalPlan:<your-Auth-user-UUID>` entry from **Local Storage**, t
 reload online. Do not clear all site data: that also removes drafts, progress,
 and unsynced completions. Removing the cache does not restore deleted server data.
 
-A draft based on a deleted version is preserved but cannot be saved against that
-missing base. Export its CSV before discarding the draft, then import it again
-against the recovered plan (or the empty create screen) and save explicitly.
+A legacy draft based on a deleted version is preserved for recovery only.
+Export it through **Recupera una vecchia bozza**, then import its CSV through
+**Nuovo piano** and save explicitly.
 Deleted database rows and any dependent data removed with them require a database
 backup to restore; this recovery only reconciles the active browser plan.
 Pending completions referencing deleted versions remain local and may be rejected
@@ -303,31 +303,54 @@ completion and private history. **Classifica** contains monthly training
 days/Punti Aura, the universal weekly multiplier, and the friends ranking.
 Local pending results are labeled separately from synchronized scores and history.
 
-**Piano** offers three creation paths: **Manualmente**, **Modello CSV**, and
-**Con un agente**. Manual creation and **Modifica piano** use a guided editor:
-plan details and optional shared warm-up, a day/exercise overview, one exercise
-at a time, then review and save. Jump back to any day or exercise; add, remove,
-and reorder items through the overview. Personalizing the bundled example remains
-available. **Esporta CSV** downloads the saved plan without opening the editor;
-**Esporta CSV della bozza** exports pending work for recovery (incomplete fields
-must be corrected before reimporting). Draft discard is a secondary option. Drafts stay
-on the device: **Riprendi modifica** reopens one explicitly, and **Torna al piano**
-leaves it intact. **Salva piano** saves the plan online. No repository editing is
-necessary. The interface accepts and exports **CSV only**, not JSON. Previously
-downloaded JSON files are no longer accepted by the upload interface. Existing
-saved plans and drafts keep working: JSON remains the internal storage/validation
-format and is converted automatically. PDF import and hosted AI extraction are
-not supported.
+Both **Modifica piano** and **Nuovo piano** first offer exactly two methods:
+**Manuale** and **CSV**. Manual entry guides you through a title, one day, and one
+exercise at a time, then another day or review. Optional warm-up and other details
+are collapsed. The day/exercise overview supports direct editing, adding, removing,
+and reordering. **Personalizza esempio** is available inside manual creation.
 
-### CSV template and agent-assisted creation
+Pending changes exist **only in memory**. **Indietro** within the flow keeps them;
+**Annulla**, returning to the method selector, switching app tabs, reloading, and
+signing out discard them. The saved plan, training progress, and history remain
+unchanged. **Salva piano** on the final review is the commit point: saving creates
+an immutable version online and is not cancellable after submission. An offline
+or failed save leaves the candidate in the open screen for retry or CSV export;
+do not close it if you want to keep those edits. A network failure can leave the
+server outcome uncertain; verify the saved plan before retrying.
+
+**Esporta CSV** downloads the saved plan outside an editing flow.
+**Esporta CSV delle modifiche** downloads pending work for recovery; incomplete
+fields must be corrected before reimporting. Older persistent browser drafts are
+not automatically resumed or deleted: **Recupera una vecchia bozza** offers CSV
+export and explicit deletion. New edits never write those stored drafts.
+
+The interface accepts and exports **CSV only**, not JSON. JSON remains the internal
+storage/validation format. No external-agent prompt/skill workflow, integrated
+Spotter, PDF import, or hosted AI extraction is included.
+
+### CSV round-trip
 
 Download **Scarica modello CSV**, edit it in Excel or Google Sheets, and export
 as UTF-8 CSV. Remove unwanted example rows. Keep the exact headers from
 [`data/workout-plan-template.csv`](data/workout-plan-template.csv); the single
-table contains one `plan` row (format version `1` and title), optional `warmup`
+table contains one `plan` row (format version `2` and title), optional `warmup`
 rows, `day` rows, and `exercise` rows linked through a unique `day_key`.
-Day keys are not internal IDs. Row order determines day order and exercise order
-within a day. The app generates internal IDs on every import.
+Day keys link rows, not comparison history. Row order determines day order and
+exercise order within a day.
+
+For editing, choose **CSV > Esporta piano da modificare**. Version-2 exports add
+`source_version_id` and `tracking_id` on the plan row and `row_id` on each item.
+Keep those values unchanged to retain comparison identity for existing items.
+Leave `row_id` empty for a new item, including when copying an existing row.
+The app validates retained identities against the captured source plan; duplicate,
+unknown, wrong-kind, or incompatible metadata is rejected. An export from another
+plan/version cannot silently relink history: re-export the current plan, or
+deliberately import it through **Nuovo piano** for fresh identity. Plans predating
+tracking namespaces retain their legacy comparison identity during matching edits.
+
+Original version-1 CSVs remain importable with their original headers and version.
+They have no identity metadata, so imports start fresh comparisons with an explicit
+notice. New-plan imports also always start fresh, even when using an exported file.
 
 Use `standard` / `amrap` for day types, `reps` / `seconds` for standard tracking,
 and `true` / `false` for weight. Standard `sets` and numeric `rest_seconds` are
@@ -345,37 +368,27 @@ beginning with formula-like characters (including after leading spaces), apostro
 or tab/newline characters with a reversible apostrophe prefix; do not casually
 strip that prefix in your spreadsheet.
 
-Uploading opens a **read-only preview**, without changing your saved plan or draft.
-Cancel to leave everything intact. Confirm **Usa CSV come bozza** or
-**Sostituisci bozza con CSV** to stage the complete replacement locally; no merging
-occurs. Review and explicitly **Salva piano** to activate it. Imports start fresh
-comparison identity; publication starts separate progress, retaining prior history.
-
-For agent assistance, download the same template and **Scarica skill**, then
-attach both to your preferred agent and use **Copia prompt**. The
-[`workout-plan` skill](assets/skills/workout-plan/SKILL.md) describes the exact
-format, examples, constraints, and workflow. Downloading does not install it;
-use your agent's documented installation mechanism or attach the file directly.
-Agents return a CSV for you to upload/review/save; they do not receive credentials,
-publish directly, or access private history. There is no MCP server or AI service
-in the app.
+Uploading opens a **read-only review**, with the complete replacement staged in
+memory only; no merging occurs. Cancel to leave the saved plan intact, or go Back
+to select another file. Explicitly **Salva piano** to activate the candidate.
+Compatible exercises in matching edit round-trips keep comparison history;
+publication still starts separate version-scoped progress and retains old history.
 
 Repository contributors and agents can validate a generated file with
 `npm run validate -- path/to/plan.csv`. The CLI also accepts internal JSON paths;
 `npm run validate` still validates the bundled example.
 
-With an existing plan, **Nuovo piano** opens the three creation choices;
-**Crea scheda** starts a blank manual replacement. The current
-plan remains active until the replacement is saved. An existing draft must be
-resumed or explicitly discarded first, so starting a new plan cannot erase it.
+With an existing plan, **Nuovo piano** opens the two creation choices;
+**Manuale** starts a blank manual replacement. The current
+plan remains active until the replacement is saved.
 The local example is read-only: creating and editing personal plans requires
 an approved signed-in account.
 
 There is one current plan per user, with immutable prior versions:
 
-- **Publish:** saves a new version in Supabase. Pending edits remain in a
-  user-specific browser draft until publication succeeds. Editing/importing while
-  offline is supported in an already-open app; publishing requires connectivity.
+- **Publish:** saves a new version in Supabase. Pending edits remain in memory
+  only while the flow is open. Editing/importing while offline is supported in an
+  already-open app; publishing requires connectivity.
 - **Version changes:** progress is local to both the user and plan version.
   Publishing starts separate progress; old progress is retained rather than
   applied to exercises that may have changed. If another device publishes while
@@ -384,7 +397,7 @@ There is one current plan per user, with immutable prior versions:
   editing device and does not expose a manual server-refresh button or version
   controls. Automatic loading and explicit error recovery remain available.
 - **Conflicts:** the server rejects saving against a superseded base version.
-  Export your draft before discarding/reloading and reapplying edits to the
+  Export pending edits before discarding/reloading and reapplying edits to the
   latest version. Concurrent saves do not silently overwrite one another.
 - **Finish:** one atomic database operation stores the completed workout and
   records daily attendance. The result contains the immutable plan version,
@@ -460,9 +473,8 @@ AMRAP comparisons require the same day identity, duration, ordered exercises,
 targets, and instructions. New plans/imports receive a fresh namespace even if
 their names/IDs match existing exercises. Old plans without a namespace use a
 legacy namespace, retaining compatibility. Do not manually reuse IDs/namespaces
-for a different movement. CSV exports preserve workout content, not internal IDs
-or tracking namespaces; importing deliberately starts a new history rather than
-guessing a link.
+for a different movement. Matching version-2 CSV edit round-trips preserve IDs and
+namespaces; legacy CSVs and new-plan imports deliberately start new comparisons.
 
 Only the owner can read actual performance. Friends see attendance and points,
 never weights, exercise definitions, or private results. Performance does not
@@ -482,7 +494,7 @@ blocking private plan loading or sign-in.
 ### Internal JSON format (developer reference)
 
 Stored plans use the same `version: 2`, `title`, `warmup`, and `sessions`
-structure as `data/workout-plan.json`. Users and agents exchange CSV instead;
+structure as `data/workout-plan.json`. The app exchanges CSV instead;
 the app converts it automatically. The browser, validation script, and database
 validate it. Limits protect rendering and submission size: 0–50 warmup items,
 1–30 days, 1–50 exercises per day, 1–30 required sets, 0–30 optional sets, at most
@@ -623,10 +635,10 @@ sync, or with **Aggiorna / riprova**; they are not realtime and retain an update
   the plan before reconnection cannot change the submitted workout. Old
   attendance-only events from the earlier implementation still synchronize,
   without fabricating exercise history for them.
-- Cached plans, progress, drafts, and pending results are not encrypted in
+- Cached plans, progress, legacy drafts, and pending results are not encrypted in
   browser storage. Use a trusted device. Signing out hides account data in the
-  UI and stops its timers; it preserves local drafts/progress and pending
-  results for that account's next sign-in rather than destroying unsynced work.
+  UI and stops its timers; it discards unsaved edits but preserves legacy drafts,
+  progress, and pending results for that account's next sign-in.
 - A completion is timed when the final outstanding step is completed or an
   optional step is skipped, not when a workout starts or the next day is selected.
   The AMRAP timer must reach zero before its completion button can be used.
